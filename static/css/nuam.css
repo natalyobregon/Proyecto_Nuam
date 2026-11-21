@@ -63,18 +63,25 @@
 }
 .btn-salir:hover, .btn-salir:focus-visible { background: #fff; color: var(--nuam-institucional); }
 
-/* Pantalla de inicio de sesión (pantalla 1 del prototipo) */
-body.pagina-login {
-  background: var(--nuam-institucional);
+/* Pantalla de inicio de sesión (pantalla 1 del prototipo): tarjeta centrada, grande en PC y compacta en celular */
+body.pagina-login { background: var(--nuam-institucional); min-height: 100vh; }
+body.pagina-login main {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: 1.5rem 1rem;
 }
-.tarjeta-login { --bs-card-bg: #fff; width: 100%; max-width: 380px; border: 0; border-radius: .75rem; }
-.logo-nuam { color: var(--nuam-primario); font-weight: 700; font-size: 2.5rem; line-height: 1; letter-spacing: -.01em; }
-.logo-sub { color: #4A6472; font-size: .9rem; }
+.tarjeta-login { --bs-card-bg: #fff; width: 100%; max-width: 360px; border: 0; border-radius: .75rem; }
+.logo-nuam { color: var(--nuam-primario); font-weight: 700; font-size: 2.25rem; line-height: 1; letter-spacing: -.01em; }
+.logo-sub { color: #4A6472; font-size: .875rem; }
+
+@media (min-width: 768px) {            /* computador / tablet */
+  .tarjeta-login { max-width: 560px; border-radius: 1rem; }
+  .logo-nuam { font-size: 3.75rem; }
+  .logo-sub { font-size: 1.1rem; }
+  .tarjeta-login .form-label { font-size: 1.05rem; }
+}
 
 /* Pantalla «Acceso denegado» */
 .acceso-denegado-titulo { color: var(--nuam-error); font-weight: 700; }
