@@ -1,0 +1,86 @@
+/* Guía de estilos de Nuam (informe, actividad 3.6) aplicada sobre Bootstrap 5.3 */
+:root {
+  --nuam-primario: #0F766E;       /* acción principal */
+  --nuam-primario-osc: #0B5C56;
+  --nuam-institucional: #1B4965;  /* fondo del login y barra superior */
+  --nuam-fondo: #F4FAFB;
+  --nuam-superficie: #E6F1F4;
+  --nuam-texto: #0F2A3A;
+  --nuam-error: #B3261E;
+  --nuam-ok: #1E7A4C;
+
+  --bs-primary: var(--nuam-primario);
+  --bs-primary-rgb: 15, 118, 110;
+  --bs-danger: var(--nuam-error);
+  --bs-danger-rgb: 179, 38, 30;
+  --bs-success: var(--nuam-ok);
+  --bs-success-rgb: 30, 122, 76;
+  --bs-body-bg: var(--nuam-fondo);
+  --bs-body-color: var(--nuam-texto);
+  --bs-link-color: var(--nuam-primario);
+  --bs-link-hover-color: var(--nuam-primario-osc);
+  --bs-border-color: #8FB0BE;     /* contraste suficiente en los bordes de los campos (WCAG) */
+}
+
+.btn-primary {
+  --bs-btn-bg: var(--nuam-primario);
+  --bs-btn-border-color: var(--nuam-primario);
+  --bs-btn-hover-bg: var(--nuam-primario-osc);
+  --bs-btn-hover-border-color: var(--nuam-primario-osc);
+  --bs-btn-active-bg: var(--nuam-primario-osc);
+  --bs-btn-active-border-color: var(--nuam-primario-osc);
+  --bs-btn-disabled-bg: var(--nuam-primario);
+  --bs-btn-disabled-border-color: var(--nuam-primario);
+}
+
+.btn-outline-primary {
+  --bs-btn-color: var(--nuam-primario);
+  --bs-btn-border-color: var(--nuam-primario);
+  --bs-btn-hover-bg: var(--nuam-primario);
+  --bs-btn-hover-border-color: var(--nuam-primario);
+  --bs-btn-active-bg: var(--nuam-primario);
+  --bs-btn-active-border-color: var(--nuam-primario);
+}
+
+.btn-danger {
+  --bs-btn-bg: var(--nuam-error);
+  --bs-btn-border-color: var(--nuam-error);
+  --bs-btn-hover-bg: #8F1E18;
+  --bs-btn-hover-border-color: #8F1E18;
+}
+
+.form-control:focus, .btn:focus-visible {
+  border-color: var(--nuam-primario);
+  box-shadow: 0 0 0 .25rem rgba(15, 118, 110, .3);
+}
+
+/* Barra superior */
+.barra-nuam { background: var(--nuam-institucional); }
+.barra-nuam .navbar-brand { font-weight: 700; letter-spacing: .02em; color: #fff; }
+.barra-nuam .usuario-info { color: #D5E6EE; font-size: .875rem; }
+.btn-salir {
+  color: #fff; border: 1px solid rgba(255, 255, 255, .6); background: transparent;
+}
+.btn-salir:hover, .btn-salir:focus-visible { background: #fff; color: var(--nuam-institucional); }
+
+/* Pantalla de inicio de sesión (pantalla 1 del prototipo) */
+body.pagina-login {
+  background: var(--nuam-institucional);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.tarjeta-login { --bs-card-bg: #fff; width: 100%; max-width: 380px; border: 0; border-radius: .75rem; }
+.logo-nuam { color: var(--nuam-primario); font-weight: 700; font-size: 2.5rem; line-height: 1; letter-spacing: -.01em; }
+.logo-sub { color: #4A6472; font-size: .9rem; }
+
+/* Pantalla «Acceso denegado» */
+.acceso-denegado-titulo { color: var(--nuam-error); font-weight: 700; }
+
+/* Tablas */
+.tabla-nuam thead th { background: var(--nuam-superficie); color: var(--nuam-texto); white-space: nowrap; }
+.badge-fuente { background: var(--nuam-superficie); color: var(--nuam-institucional); font-weight: 600; }
+
+.caja-centrada { max-width: 32rem; }
