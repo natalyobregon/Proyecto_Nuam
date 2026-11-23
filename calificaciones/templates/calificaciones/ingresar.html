@@ -97,9 +97,38 @@
     {% endfor %}
   </div>
 
+ {% if mostrar_factores %}
+    <hr class="my-4">
+    <h2 class="h6 fw-bold mb-2">3. Factores (Columnas 8 a 37 — Ajuste manual opcional)</h2>
+    <p class="small text-muted mb-3">
+      Puede ajustar los factores antes de guardar. La suma de los factores 8 a 16 no puede superar 1.
+    </p>
+    <div class="row g-2">
+      {% for item in campos_factores %}
+        <div class="col-6 col-sm-4 col-md-3 col-lg-2">
+          <label for="factor_{{ item.col }}" class="form-label small mb-1">Factor {{ item.col }}</label>
+          <input
+            type="number"
+            step="0.00000001"
+            min="0"
+            id="factor_{{ item.col }}"
+            name="factor_{{ item.col }}"
+            class="form-control form-control-sm"
+            value="{{ item.valor }}"
+          >
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   <div class="mt-4 pt-3 border-top d-flex flex-wrap justify-content-end align-items-center gap-2">
     <a href="{% url 'grilla' %}" class="btn btn-outline-secondary">Cancelar</a>
-    <button type="submit" class="btn btn-primary">Guardar calificación</button>
+    <button type="submit" name="accion" value="calcular" class="btn btn-outline-primary">
+      Calcular factores
+    </button>
+    <button type="submit" name="accion" value="guardar" class="btn btn-primary">
+      Guardar calificación
+    </button>
   </div>
 </form>
 {% endblock %}

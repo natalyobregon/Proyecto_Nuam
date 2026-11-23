@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
+from django.shortcuts import get_object_or_404 #ESTO ES PARA ELIMINAR UNA CALIFICACION
 
 from cuentas.alcance import calificaciones_visibles
 from cuentas.permisos import (
@@ -19,6 +20,8 @@ from .calculos import (
     CERO,
     calcular_factores_desde_montos,
     parsear_decimal,
+    redondear_8_decimales,
+    resolver_factores_editables,
     validar_suma_factores_8_a_16,
 )
 from .forms import CalificacionBasicaForm
@@ -96,14 +99,20 @@ def ingresar_calificacion(request):
         return redirect('grilla')
 
     columnas_montos = list(range(8, 37))
+    columnas_factores = list(range(8, 38))
     valores_montos = {col: '0' for col in columnas_montos}
     factores_calculados = None
+    valores_factores = {col: '' for col in columnas_factores}
 
     if request.method == 'POST':
         form = CalificacionBasicaForm(request.POST)
+        accion = request.POST.get('accion', 'guardar')
 
         for col in columnas_montos:
             valores_montos[col] = request.POST.get(f'monto_{col}', '0')
+
+        for col in columnas_factores:
+            valores_factores[col] = request.POST.get(f'factor_{col}', '')
 
         form_ok = form.is_valid()
         montos_decimales = {}
@@ -122,7 +131,7 @@ def ingresar_calificacion(request):
                     clase_actual = form.fields[nombre_campo].widget.attrs.get('class', '')
                     if 'is-invalid' not in clase_actual:
                         form.fields[nombre_campo].widget.attrs['class'] = f'{clase_actual} is-invalid'.strip()
-            messages.error(request, 'Revise los campos obligatorios resaltados antes de guardar.')
+            messages.error(request, 'Revise los campos obligatorios resaltados antes de continuar.')
         elif error_monto:
             messages.error(request, error_monto)
         else:
@@ -140,59 +149,81 @@ def ingresar_calificacion(request):
                 factores_calculados = None
 
             if factores_calculados is not None:
-                suma_valida, suma_8_16 = validar_suma_factores_8_a_16(factores_calculados)
-                if not suma_valida:
-                    messages.error(
+                if accion == 'calcular':
+                    for col in columnas_factores:
+                        valores_factores[col] = str(redondear_8_decimales(factores_calculados[col]))
+                    messages.info(
                         request,
-                        f'La suma de los factores 8 a 16 ({suma_8_16}) supera 1. No se puede guardar.'
+                        'Factores calculados. Revíselos o ajústelos a mano y luego presione "Guardar calificación".'
                     )
-            else:
+                else:
                     try:
-                        with transaction.atomic():
-                            calificacion = form.save(commit=False)
-                            calificacion.corredora = request.user.corredora
-                            calificacion.fuente_ingreso = 'manual'
-                            calificacion.save()
+                        factores_finales = resolver_factores_editables(request.POST, factores_calculados)
+                    except ValueError as exc:
+                        messages.error(request, str(exc))
+                        factores_finales = None
 
-                            MontoCalificacion.objects.bulk_create([
-                                MontoCalificacion(
-                                    calificacion=calificacion,
-                                    numero_columna=col,
-                                    valor=montos_decimales[col],
-                                )
-                                for col in columnas_montos
-                            ])
+                    if factores_finales is not None:
+                        for col in columnas_factores:
+                            valores_factores[col] = str(factores_finales[col])
 
-                            FactorCalificacion.objects.bulk_create([
-                                FactorCalificacion(
-                                    calificacion=calificacion,
-                                    numero_columna=col,
-                                    valor=factores_calculados[col],
-                                )
-                                for col in range(8, 38)
-                            ])
-
-                            auditar(
+                        suma_valida, suma_8_16 = validar_suma_factores_8_a_16(factores_finales)
+                        if not suma_valida:
+                            messages.error(
                                 request,
-                                'crear',
-                                request.user,
-                                id_calificacion=calificacion.id_calificacion,
-                                via='manual',
-                                instrumento=calificacion.instrumento,
-                                ejercicio=calificacion.ejercicio,
+                                f'La suma de los factores 8 a 16 ({suma_8_16}) supera 1. No se puede guardar.'
                             )
+                        else:
+                            try:
+                                with transaction.atomic():
+                                    calificacion = form.save(commit=False)
+                                    calificacion.corredora = request.user.corredora
+                                    calificacion.fuente_ingreso = 'manual'
+                                    calificacion.save()
 
-                        messages.success(request, 'Calificación, montos y factores guardados correctamente.')
-                        return redirect('grilla')
-                    except IntegrityError:
-                        messages.error(
-                            request,
-                            'Ya existe una calificación con esa combinación de corredora, mercado, instrumento, año, secuencia y origen.'
-                        )
+                                    MontoCalificacion.objects.bulk_create([
+                                        MontoCalificacion(
+                                            calificacion=calificacion,
+                                            numero_columna=col,
+                                            valor=montos_decimales[col],
+                                        )
+                                        for col in columnas_montos
+                                    ])
+
+                                    FactorCalificacion.objects.bulk_create([
+                                        FactorCalificacion(
+                                            calificacion=calificacion,
+                                            numero_columna=col,
+                                            valor=factores_finales[col],
+                                        )
+                                        for col in columnas_factores
+                                    ])
+
+                                    auditar(
+                                        request,
+                                        'crear',
+                                        request.user,
+                                        id_calificacion=calificacion.id_calificacion,
+                                        via='manual',
+                                        instrumento=calificacion.instrumento,
+                                        ejercicio=calificacion.ejercicio,
+                                    )
+
+                                messages.success(request, 'Calificación, montos y factores guardados correctamente.')
+                                return redirect('grilla')
+                            except IntegrityError:
+                                messages.error(
+                                    request,
+                                    'Ya existe una calificación con esa combinación de corredora, mercado, instrumento, año, secuencia y origen.'
+                                )
     else:
         form = CalificacionBasicaForm()
 
     campos_montos = [{'col': col, 'valor': valores_montos[col]} for col in columnas_montos]
+    campos_factores = [{'col': col, 'valor': valores_factores[col]} for col in columnas_factores]
+    mostrar_factores = factores_calculados is not None or any(
+        str(valores_factores[col]).strip() != '' for col in columnas_factores
+    )
 
     return render(request, 'calificaciones/ingresar.html', {
         'form': form,
@@ -200,4 +231,35 @@ def ingresar_calificacion(request):
         'valores_montos': valores_montos,
         'campos_montos': campos_montos,
         'factores_calculados': factores_calculados,
+        'campos_factores': campos_factores,
+        'mostrar_factores': mostrar_factores,
+    })
+
+@never_cache #funcion para mostrar el detalle de una calificacion, con sus montos y factores
+@login_required
+def detalle_calificacion(request, pk):
+    calificacion = get_object_or_404(
+        calificaciones_visibles(request.user)
+        .filter(eliminado=False)
+        .select_related('corredora')
+        .prefetch_related('montos', 'factores'),
+        pk=pk,
+    )
+    mapa_montos = {m.numero_columna: m.valor for m in calificacion.montos.all()}
+    mapa_factores = {f.numero_columna: f.valor for f in calificacion.factores.all()}
+
+    filas_8_a_36 = [
+        {
+            'col': col,
+            'monto': mapa_montos.get(col),
+            'factor': mapa_factores.get(col),
+        }
+        for col in range(8, 37)
+    ]
+    factor_37 = mapa_factores.get(37)
+
+    return render(request, 'calificaciones/detalle.html', {
+        'calificacion': calificacion,
+        'filas_8_a_36': filas_8_a_36,
+        'factor_37': factor_37,
     })

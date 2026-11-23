@@ -108,7 +108,7 @@
                 <button type="button" class="btn btn-sm btn-outline-danger" disabled title="Disponible en siguiente paso">Eliminar</button>
               {% endif %}
             {% else %}
-              <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Detalle en siguiente paso">Ver</button>
+              <a href="{% url 'detalle' c.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>
             {% endif %}
           </td>
         </tr>
