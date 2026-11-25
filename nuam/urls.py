@@ -1,4 +1,3 @@
-"""URL configuration for nuam project."""
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
@@ -24,6 +23,6 @@ def admin_login_unico(request):
 urlpatterns = [
     path('admin/login/', admin_login_unico),
     path('admin/', admin.site.urls),
-    path('calificaciones/', cuentas_views.grilla, name='grilla'),   # provisoria: la reemplaza la grilla real
+    path('calificaciones/', include('calificaciones.urls')),
     path('', include('cuentas.urls')),
 ]
