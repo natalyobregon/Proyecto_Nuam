@@ -1,0 +1,134 @@
+{% extends 'base.html' %}
+{% block titulo %}Ingresar calificación{% endblock %}
+
+{% block contenido %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 fw-bold mb-0">Ingresar calificación — Datos básicos</h1>
+  <a href="{% url 'grilla' %}" class="btn btn-outline-secondary btn-sm">Volver a la grilla</a>
+</div>
+
+{% if messages %}
+  {% for msg in messages %}
+    <div class="alert alert-{% if msg.tags == 'error' %}danger{% else %}{{ msg.tags }}{% endif %}" role="alert">
+      {{ msg }}
+    </div>
+  {% endfor %}
+{% endif %}
+
+<form method="post" novalidate class="card card-body shadow-sm">
+  {% csrf_token %}
+
+  <div class="row g-3">
+    <div class="col-12 col-md-6">
+      <label for="{{ form.mercado.id_for_label }}" class="form-label fw-semibold">Mercado *</label>
+      {{ form.mercado }}
+      {% for err in form.mercado.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 col-md-6">
+      <label for="{{ form.instrumento.id_for_label }}" class="form-label fw-semibold">Instrumento *</label>
+      {{ form.instrumento }}
+      {% for err in form.instrumento.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label for="{{ form.secuencia_evento.id_for_label }}" class="form-label fw-semibold">Secuencia de evento *</label>
+      {{ form.secuencia_evento }}
+      {% for err in form.secuencia_evento.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label for="{{ form.dividendo.id_for_label }}" class="form-label fw-semibold">Dividendo *</label>
+      {{ form.dividendo }}
+      {% for err in form.dividendo.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label for="{{ form.fecha_pago.id_for_label }}" class="form-label fw-semibold">Fecha de pago *</label>
+      {{ form.fecha_pago }}
+      {% for err in form.fecha_pago.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label for="{{ form.valor_historico.id_for_label }}" class="form-label fw-semibold">Valor histórico *</label>
+      {{ form.valor_historico }}
+      {% for err in form.valor_historico.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label for="{{ form.ejercicio.id_for_label }}" class="form-label fw-semibold">Año / Ejercicio *</label>
+      {{ form.ejercicio }}
+      {% for err in form.ejercicio.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label for="{{ form.origen.id_for_label }}" class="form-label fw-semibold">Origen *</label>
+      {{ form.origen }}
+      {% for err in form.origen.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12">
+      <label for="{{ form.descripcion.id_for_label }}" class="form-label fw-semibold">Descripción</label>
+      {{ form.descripcion }}
+      {% for err in form.descripcion.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <hr class="my-4">
+  <h2 class="h6 fw-bold mb-2">2. Montos de calificación (Columnas 8 a 36)</h2>
+  <p class="small text-muted mb-3">
+    Ingrese los 29 montos correspondientes. Los factores se calcularán automáticamente con 8 decimales exactos.
+  </p>
+
+  <div class="row g-2">
+    {% for item in campos_montos %}
+      <div class="col-6 col-sm-4 col-md-3 col-lg-2">
+        <label for="monto_{{ item.col }}" class="form-label small mb-1">Monto {{ item.col }}</label>
+        <input
+          type="number"
+          step="any"
+          min="0"
+          id="monto_{{ item.col }}"
+          name="monto_{{ item.col }}"
+          class="form-control form-control-sm"
+          value="{{ item.valor }}"
+        >
+      </div>
+    {% endfor %}
+  </div>
+
+ {% if mostrar_factores %}
+    <hr class="my-4">
+    <h2 class="h6 fw-bold mb-2">3. Factores (Columnas 8 a 37 — Ajuste manual opcional)</h2>
+    <p class="small text-muted mb-3">
+      Puede ajustar los factores antes de guardar. La suma de los factores 8 a 16 no puede superar 1.
+    </p>
+    <div class="row g-2">
+      {% for item in campos_factores %}
+        <div class="col-6 col-sm-4 col-md-3 col-lg-2">
+          <label for="factor_{{ item.col }}" class="form-label small mb-1">Factor {{ item.col }}</label>
+          <input
+            type="number"
+            step="0.00000001"
+            min="0"
+            id="factor_{{ item.col }}"
+            name="factor_{{ item.col }}"
+            class="form-control form-control-sm"
+            value="{{ item.valor }}"
+          >
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="mt-4 pt-3 border-top d-flex flex-wrap justify-content-end align-items-center gap-2">
+    <a href="{% url 'grilla' %}" class="btn btn-outline-secondary">Cancelar</a>
+    <button type="submit" name="accion" value="calcular" class="btn btn-outline-primary">
+      Calcular factores
+    </button>
+    <button type="submit" name="accion" value="guardar" class="btn btn-primary">
+      Guardar calificación
+    </button>
+  </div>
+</form>
+{% endblock %}
