@@ -76,7 +76,7 @@ class IngresoManualTests(TestCase):
     def datos_basicos(self, **extra):
         datos = {'mercado': 'ACCIONES', 'instrumento': 'COPEC', 'secuencia_evento': '10001',
                  'dividendo': '0', 'fecha_pago': '2025-05-15', 'valor_historico': '0',
-                 'ejercicio': '2025', 'origen': 'local_corredora', 'descripcion': 'Prueba'}
+                 'ejercicio': '2025', 'descripcion': 'Prueba'}
         datos.update(extra)
         return datos
 
@@ -122,3 +122,39 @@ class IngresoManualTests(TestCase):
         FactorCalificacion(calificacion=cal, numero_columna=8, valor=D('0.9')).save()
         with self.assertRaises(Exception):
             FactorCalificacion(calificacion=cal, numero_columna=19, valor=D('0.2')).save()
+
+    def test_caso_3_secuencia_invalida_no_graba_y_marca_el_campo(self):
+        datos = {**self.datos_basicos(secuencia_evento='9999'), **self.montos_post(), 'accion': 'guardar'}
+        r = self.client.post(reverse('ingresar'), datos)
+        self.assertContains(r, 'debe ser mayor a 10.000')
+        self.assertFalse(Calificacion.objects.exists())
+
+    def test_secuencia_10001_es_valida_y_10000_no(self):
+        for secuencia, graba in (('10000', False), ('10001', True)):
+            datos = {**self.datos_basicos(secuencia_evento=secuencia), **self.montos_post(), 'accion': 'guardar'}
+            self.client.post(reverse('ingresar'), datos)
+            self.assertEqual(Calificacion.objects.filter(secuencia_evento=secuencia).exists(), graba)
+
+    def test_el_ingreso_manual_siempre_es_local_aunque_el_navegador_diga_otra_cosa(self):
+        datos = {**self.datos_basicos(origen='oficial_bolsa'), **self.montos_post(), 'accion': 'guardar'}
+        self.client.post(reverse('ingresar'), datos)
+        cal = Calificacion.objects.get()
+        self.assertEqual(cal.origen, 'local_corredora')
+        self.assertEqual(cal.fuente_ingreso, 'manual')
+        self.assertEqual(cal.corredora, self.corredora)
+
+    def test_el_formulario_no_ofrece_elegir_origen(self):
+        self.assertNotContains(self.client.get(reverse('ingresar')), 'name="origen"')
+
+    def test_el_administrador_no_puede_ingresar(self):
+        admin = Usuario.objects.create_user('admin_x', password='Ventana123$',
+                                            rol=Usuario.ROL_ADMIN, is_staff=True)
+        self.client.force_login(admin)
+        self.assertEqual(self.client.get(reverse('ingresar')).status_code, 403)
+
+    def test_admin_de_django_muestra_calificaciones_solo_lectura(self):
+        admin = Usuario.objects.create_user('admin_y', password='Ventana123$',
+                                            rol=Usuario.ROL_ADMIN, is_staff=True, is_superuser=True)
+        self.client.force_login(admin)
+        r = self.client.get('/admin/calificaciones/calificacion/add/')
+        self.assertEqual(r.status_code, 403)

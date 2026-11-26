@@ -12,18 +12,31 @@ class UsuarioAdmin(UserAdmin):
     list_display = ('username', 'email', 'rol', 'corredora', 'is_active')
 
 
-class MontoInline(admin.TabularInline):
+class SoloLectura:
+    """Las calificaciones solo se modifican por el mantenedor (con validaciones y log), nunca desde /admin."""
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class MontoInline(SoloLectura, admin.TabularInline):
     model = MontoCalificacion
     extra = 0
 
 
-class FactorInline(admin.TabularInline):
+class FactorInline(SoloLectura, admin.TabularInline):
     model = FactorCalificacion
     extra = 0
 
 
 @admin.register(Calificacion)
-class CalificacionAdmin(admin.ModelAdmin):
+class CalificacionAdmin(SoloLectura, admin.ModelAdmin):
     list_display = ('id_calificacion', 'corredora', 'mercado', 'instrumento', 'ejercicio',
                     'secuencia_evento', 'origen', 'eliminado')
     list_filter = ('origen', 'ejercicio', 'eliminado', 'corredora')

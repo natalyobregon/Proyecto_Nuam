@@ -171,6 +171,7 @@ def ingresar_calificacion(request):
                                 with transaction.atomic():
                                     calificacion = form.save(commit=False)
                                     calificacion.corredora = request.user.corredora
+                                    calificacion.origen = 'local_corredora'   # el ingreso manual siempre es del corredor
                                     calificacion.fuente_ingreso = 'manual'
                                     calificacion.save()
 

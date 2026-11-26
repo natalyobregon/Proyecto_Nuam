@@ -13,7 +13,6 @@ class CalificacionBasicaForm(forms.ModelForm):
             'fecha_pago',
             'valor_historico',
             'ejercicio',
-            'origen',
             'descripcion',
         ]
         widgets = {
@@ -27,7 +26,7 @@ class CalificacionBasicaForm(forms.ModelForm):
             }),
             'secuencia_evento': forms.NumberInput(attrs={
                 'class': 'form-control',
-                'min': 1,
+                'min': 10001,
             }),
             'dividendo': forms.NumberInput(attrs={
                 'class': 'form-control',
@@ -45,9 +44,6 @@ class CalificacionBasicaForm(forms.ModelForm):
                 'class': 'form-control',
                 'min': 1900,
                 'max': 2100,
-            }),
-            'origen': forms.Select(attrs={
-                'class': 'form-select',
             }),
             'descripcion': forms.TextInput(attrs={
                 'class': 'form-control',
@@ -67,7 +63,12 @@ class CalificacionBasicaForm(forms.ModelForm):
             'fecha_pago',
             'valor_historico',
             'ejercicio',
-            'origen',
         ]
         for campo in obligatorios:
             self.fields[campo].required = True
+
+    def clean_secuencia_evento(self):
+        secuencia = self.cleaned_data['secuencia_evento']
+        if secuencia <= 10000:
+            raise forms.ValidationError('La secuencia del evento debe ser mayor a 10.000.')
+        return secuencia

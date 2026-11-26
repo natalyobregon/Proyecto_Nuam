@@ -61,12 +61,6 @@
       {% for err in form.ejercicio.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
     </div>
 
-    <div class="col-12 col-md-4">
-      <label for="{{ form.origen.id_for_label }}" class="form-label fw-semibold">Origen *</label>
-      {{ form.origen }}
-      {% for err in form.origen.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
-    </div>
-
     <div class="col-12">
       <label for="{{ form.descripcion.id_for_label }}" class="form-label fw-semibold">Descripción</label>
       {{ form.descripcion }}
