@@ -27,8 +27,8 @@
       <label for="filtro-mercado" class="form-label small fw-semibold mb-1">Mercado</label>
       <select id="filtro-mercado" name="mercado" class="form-select form-select-sm">
         <option value="">Todos</option>
-        {% for m in mercados_disponibles %}
-          <option value="{{ m }}" {% if filtro_mercado == m %}selected{% endif %}>{{ m }}</option>
+        {% for codigo, etiqueta in mercados_disponibles %}
+          <option value="{{ codigo }}" {% if filtro_mercado == codigo %}selected{% endif %}>{{ etiqueta }}</option>
         {% endfor %}
       </select>
     </div>
@@ -71,6 +71,8 @@
         <th scope="col">Mercado</th>
         <th scope="col">Origen</th>
         <th scope="col">Instrumento</th>
+        <th scope="col">Tipo soc.</th>
+        <th scope="col">ISFUT</th>
         <th scope="col">Fecha pago</th>
         <th scope="col">Descripción</th>
         <th scope="col">Fuente</th>
@@ -89,6 +91,8 @@
           <td>{{ c.mercado }}</td>
           <td>{{ c.get_origen_display }}</td>
           <td class="fw-semibold">{{ c.instrumento }}</td>
+          <td>{{ c.tipo_sociedad }}</td>
+          <td>{% if c.isfut %}Sí{% else %}No{% endif %}</td>
           <td>{{ c.fecha_pago|date:"d/m/Y"|default:"—" }}</td>
           <td>{{ c.descripcion|default:"—" }}</td>
           <td><span class="badge badge-fuente">{{ c.get_fuente_ingreso_display }}</span></td>
@@ -100,22 +104,21 @@
           {% endfor %}
 
           <td class="text-end text-nowrap">
-            {% if puede_modificar or puede_eliminar %}
+            <a href="{% url 'detalle' c.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>
+            {% if fila.editable and puede_modificar or fila.editable and puede_eliminar %}
               {% if puede_modificar %}
                 <button type="button" class="btn btn-sm btn-outline-primary" disabled title="Disponible en siguiente paso">Editar</button>
               {% endif %}
               {% if puede_eliminar %}
                 <button type="button" class="btn btn-sm btn-outline-danger" disabled title="Disponible en siguiente paso">Eliminar</button>
               {% endif %}
-            {% else %}
-              <a href="{% url 'detalle' c.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>
             {% endif %}
           </td>
         </tr>
         {% endwith %}
       {% empty %}
         <tr>
-          <td colspan="39" class="text-center py-4 fw-semibold">«sin registros»</td>
+          <td colspan="41" class="text-center py-4 fw-semibold">«sin registros»</td>
         </tr>
       {% endfor %}
     </tbody>

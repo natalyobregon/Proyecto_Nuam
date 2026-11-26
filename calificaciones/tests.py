@@ -74,8 +74,8 @@ class IngresoManualTests(TestCase):
         self.client.force_login(self.operador)
 
     def datos_basicos(self, **extra):
-        datos = {'mercado': 'ACCIONES', 'instrumento': 'COPEC', 'secuencia_evento': '10001',
-                 'dividendo': '0', 'fecha_pago': '2025-05-15', 'valor_historico': '0',
+        datos = {'mercado': 'ACN', 'instrumento': 'COPEC', 'secuencia_evento': '10001',
+                 'dividendo': '0', 'tipo_sociedad': 'A', 'fecha_pago': '2025-05-15', 'valor_historico': '0',
                  'ejercicio': '2025', 'descripcion': 'Prueba'}
         datos.update(extra)
         return datos
@@ -117,7 +117,7 @@ class IngresoManualTests(TestCase):
 
     def test_modelo_rechaza_factor_que_pasa_la_suma_8_a_19(self):
         cal = Calificacion.objects.create(
-            corredora=self.corredora, ejercicio=2025, mercado='ACCIONES', instrumento='X',
+            corredora=self.corredora, ejercicio=2025, mercado='ACN', instrumento='X',
             secuencia_evento=10001)
         FactorCalificacion(calificacion=cal, numero_columna=8, valor=D('0.9')).save()
         with self.assertRaises(Exception):
@@ -158,3 +158,77 @@ class IngresoManualTests(TestCase):
         self.client.force_login(admin)
         r = self.client.get('/admin/calificaciones/calificacion/add/')
         self.assertEqual(r.status_code, 403)
+
+
+class Paso3BolsaYCamposTests(TestCase):
+    """Bolsa visible para todas las corredoras, solo lectura, y el corredor prevalece."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.bolsa = Corredora.objects.create(nombre='Bolsa', rut='99.999.999-9', es_bolsa=True)
+        cls.corr_a = Corredora.objects.create(nombre='A', rut='76.111.111-1')
+        cls.corr_b = Corredora.objects.create(nombre='B', rut='76.222.222-2')
+        cls.op_a = Usuario.objects.create_user('op_a', password='x', rol=Usuario.ROL_OPERADOR,
+                                               corredora=cls.corr_a)
+        cls.op_b = Usuario.objects.create_user('op_b', password='x', rol=Usuario.ROL_OPERADOR,
+                                               corredora=cls.corr_b)
+
+        def mk(corr, instr, origen):
+            return Calificacion.objects.create(
+                corredora=corr, ejercicio=2025, mercado='ACN', instrumento=instr,
+                secuencia_evento=10001, origen=origen)
+        cls.b_copec = mk(cls.bolsa, 'COPEC', 'oficial_bolsa')
+        cls.b_sqm = mk(cls.bolsa, 'SQM-B', 'oficial_bolsa')
+        cls.a_copec = mk(cls.corr_a, 'COPEC', 'local_corredora')
+
+    def ids(self, usuario):
+        from cuentas.alcance import calificaciones_visibles
+        return set(calificaciones_visibles(usuario).values_list('pk', flat=True))
+
+    def test_operador_ve_bolsa_y_lo_propio(self):
+        self.assertIn(self.b_sqm.pk, self.ids(self.op_a))
+        self.assertIn(self.b_sqm.pk, self.ids(self.op_b))
+
+    def test_prevalece_la_calificacion_del_corredor(self):
+        ids_a = self.ids(self.op_a)
+        self.assertIn(self.a_copec.pk, ids_a)
+        self.assertNotIn(self.b_copec.pk, ids_a)
+
+    def test_otra_corredora_sigue_viendo_la_oficial_y_no_la_ajena(self):
+        ids_b = self.ids(self.op_b)
+        self.assertIn(self.b_copec.pk, ids_b)
+        self.assertNotIn(self.a_copec.pk, ids_b)
+
+    def test_bolsa_es_solo_lectura(self):
+        from cuentas.alcance import es_editable_por
+        self.assertFalse(es_editable_por(self.op_a, self.b_sqm))
+        self.assertTrue(es_editable_por(self.op_a, self.a_copec))
+        self.assertFalse(es_editable_por(self.op_b, self.a_copec))
+
+    def test_grilla_no_ofrece_editar_sobre_bolsa(self):
+        self.client.force_login(self.op_a)
+        r = self.client.get(reverse('grilla'))
+        filas = {f['obj'].pk: f['editable'] for f in r.context['filas']}
+        self.assertFalse(filas[self.b_sqm.pk])
+        self.assertTrue(filas[self.a_copec.pk])
+
+    def test_ingreso_guarda_isfut_tipo_sociedad_y_numero_dividendo(self):
+        self.client.force_login(self.op_a)
+        datos = {'mercado': 'CFI', 'instrumento': 'CFIX', 'secuencia_evento': '10005',
+                 'numero_dividendo': '3', 'dividendo': '0', 'tipo_sociedad': 'C', 'isfut': 'on',
+                 'fecha_pago': '2025-05-15', 'valor_historico': '0', 'ejercicio': '2025',
+                 'accion': 'guardar', **{f'monto_{c}': '0' if c != 8 else '100' for c in range(8, 38)}}
+        r = self.client.post(reverse('ingresar'), datos)
+        self.assertRedirects(r, reverse('grilla'))
+        cal = Calificacion.objects.get(instrumento='CFIX')
+        self.assertTrue(cal.isfut)
+        self.assertEqual(cal.tipo_sociedad, 'C')
+
+
+    def test_mercado_fuera_de_la_lista_se_rechaza(self):
+        from calificaciones.forms import CalificacionBasicaForm
+        f = CalificacionBasicaForm({'mercado': 'XYZ', 'instrumento': 'A', 'secuencia_evento': '10001',
+                                    'dividendo': '0', 'tipo_sociedad': 'A', 'fecha_pago': '2025-05-15',
+                                    'valor_historico': '0', 'ejercicio': '2025'})
+        self.assertFalse(f.is_valid())
+        self.assertIn('mercado', f.errors)

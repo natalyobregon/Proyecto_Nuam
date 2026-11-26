@@ -38,6 +38,25 @@
     </div>
 
     <div class="col-12 col-md-4">
+      <label for="{{ form.numero_dividendo.id_for_label }}" class="form-label fw-semibold">Número de dividendo</label>
+      {{ form.numero_dividendo }}
+      {% for err in form.numero_dividendo.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label for="{{ form.tipo_sociedad.id_for_label }}" class="form-label fw-semibold">Tipo de sociedad *</label>
+      {{ form.tipo_sociedad }}
+      {% for err in form.tipo_sociedad.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 col-md-4 d-flex align-items-end">
+      <div class="form-check mb-2">
+        {{ form.isfut }}
+        <label for="{{ form.isfut.id_for_label }}" class="form-check-label fw-semibold">ISFUT</label>
+      </div>
+    </div>
+
+    <div class="col-12 col-md-4">
       <label for="{{ form.dividendo.id_for_label }}" class="form-label fw-semibold">Dividendo *</label>
       {{ form.dividendo }}
       {% for err in form.dividendo.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
@@ -69,9 +88,9 @@
   </div>
 
   <hr class="my-4">
-  <h2 class="h6 fw-bold mb-2">2. Montos de calificación (Columnas 8 a 36)</h2>
+  <h2 class="h6 fw-bold mb-2">2. Montos de calificación (Columnas 8 a 37)</h2>
   <p class="small text-muted mb-3">
-    Ingrese los 29 montos correspondientes. Los factores se calcularán automáticamente con 8 decimales exactos.
+    Ingrese los 30 montos (columnas 8 a 37). Las columnas que no aplican quedan en 0. Los factores se calcularán automáticamente con 8 decimales exactos.
   </p>
 
   <div class="row g-2">
@@ -95,7 +114,7 @@
     <hr class="my-4">
     <h2 class="h6 fw-bold mb-2">3. Factores (Columnas 8 a 37 — Ajuste manual opcional)</h2>
     <p class="small text-muted mb-3">
-      Puede ajustar los factores antes de guardar. La suma de los factores 8 a 16 no puede superar 1.
+      Puede ajustar los factores antes de guardar. La suma de los factores 8 a 19 no puede superar 1.
     </p>
     <div class="row g-2">
       {% for item in campos_factores %}

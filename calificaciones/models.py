@@ -11,6 +11,8 @@ class Corredora(models.Model):
     nombre = models.CharField(max_length=150)
     rut = models.CharField(max_length=12, unique=True)
     activa = models.BooleanField(default=True)
+    # Corredora especial «Bolsa»: dueña de las calificaciones oficiales (solo lectura para todos).
+    es_bolsa = models.BooleanField(default=False)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -67,16 +69,23 @@ class CargaMasiva(models.Model):
 class Calificacion(models.Model):
     ORIGENES = [('oficial_bolsa', 'Oficial bolsa'), ('local_corredora', 'Local corredora')]
     FUENTES = [('manual', 'Manual'), ('archivo', 'Archivo'), ('sistema', 'Sistema')]
+    # Lista controlada de mercados (códigos de 3 letras del CSV). Confirmar lista final con el docente.
+    MERCADOS = [('ACN', 'ACN - Acciones'), ('CFI', 'CFI - Cuotas de fondos de inversión'),
+                ('FMU', 'FMU - Fondos mutuos')]
+    TIPOS_SOCIEDAD = [('A', 'A - Abierta'), ('C', 'C - Cerrada')]
 
     id_calificacion = models.AutoField(primary_key=True)
     corredora = models.ForeignKey(Corredora, on_delete=models.PROTECT, related_name='calificaciones')
     carga = models.ForeignKey(CargaMasiva, null=True, blank=True, on_delete=models.SET_NULL,
                               related_name='calificaciones')
     ejercicio = models.PositiveSmallIntegerField()
-    mercado = models.CharField(max_length=20)
+    mercado = models.CharField(max_length=20, choices=MERCADOS)
     instrumento = models.CharField(max_length=30)
     secuencia_evento = models.PositiveIntegerField()
     dividendo = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    numero_dividendo = models.PositiveIntegerField(null=True, blank=True)
+    tipo_sociedad = models.CharField(max_length=1, choices=TIPOS_SOCIEDAD, default='A')
+    isfut = models.BooleanField(default=False)
     fecha_pago = models.DateField(null=True, blank=True)
     valor_historico = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     factor_actualizacion = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
@@ -113,6 +122,7 @@ class MontoCalificacion(models.Model):
         constraints = [models.UniqueConstraint(fields=['calificacion', 'numero_columna'],
                                                name='uq_monto_calif_col')]
 
+
 class FactorCalificacion(models.Model):
     """30 factores por calificación (columnas 8 a 37). Regla: suma de 8 a 19 <= 1."""
     calificacion = models.ForeignKey(Calificacion, on_delete=models.CASCADE, related_name='factores')
@@ -138,6 +148,7 @@ class FactorCalificacion(models.Model):
     def save(self, *args, **kwargs):
         self.full_clean(exclude=['calificacion'])
         super().save(*args, **kwargs)
+
 
 class RegistroAuditoria(models.Model):
     """Bitácora append-only: no se edita ni se elimina."""

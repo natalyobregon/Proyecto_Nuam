@@ -22,7 +22,7 @@ CLAVE = 'Ventana123$'
 
 def crear_calificacion(corredora, instrumento, descripcion=''):
     return Calificacion.objects.create(
-        corredora=corredora, ejercicio=2025, mercado='ACCIONES', instrumento=instrumento,
+        corredora=corredora, ejercicio=2025, mercado='ACN', instrumento=instrumento,
         secuencia_evento=1, descripcion=descripcion)
 
 

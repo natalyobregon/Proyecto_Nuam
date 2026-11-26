@@ -9,17 +9,20 @@ class CalificacionBasicaForm(forms.ModelForm):
             'mercado',
             'instrumento',
             'secuencia_evento',
+            'numero_dividendo',
             'dividendo',
+            'tipo_sociedad',
+            'isfut',
             'fecha_pago',
             'valor_historico',
             'ejercicio',
             'descripcion',
         ]
         widgets = {
-            'mercado': forms.TextInput(attrs={
-                'class': 'form-control',
-                'placeholder': 'Ej: Acciones, RV, etc.',
-            }),
+            'mercado': forms.Select(attrs={'class': 'form-select'}),
+            'tipo_sociedad': forms.Select(attrs={'class': 'form-select'}),
+            'isfut': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'numero_dividendo': forms.NumberInput(attrs={'class': 'form-control', 'min': 0}),
             'instrumento': forms.TextInput(attrs={
                 'class': 'form-control',
                 'placeholder': 'Ej: SQM-B, COPEC',
@@ -63,9 +66,13 @@ class CalificacionBasicaForm(forms.ModelForm):
             'fecha_pago',
             'valor_historico',
             'ejercicio',
+            'tipo_sociedad',
         ]
         for campo in obligatorios:
             self.fields[campo].required = True
+        self.fields['isfut'].required = False
+        self.fields['numero_dividendo'].required = False
+        self.fields['mercado'].choices = [('', 'Seleccione…')] + list(Calificacion.MERCADOS)
 
     def clean_secuencia_evento(self):
         secuencia = self.cleaned_data['secuencia_evento']

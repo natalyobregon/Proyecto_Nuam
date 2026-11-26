@@ -5,7 +5,7 @@ from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.shortcuts import get_object_or_404 #ESTO ES PARA ELIMINAR UNA CALIFICACION
 
-from cuentas.alcance import calificaciones_visibles
+from cuentas.alcance import calificaciones_visibles, es_editable_por
 from cuentas.permisos import (
     ADMINISTRAR_USUARIOS,
     CARGA_MASIVA,
@@ -44,19 +44,14 @@ def grilla_calificaciones(request):
     )
 
     if mercado:
-        queryset = queryset.filter(mercado__iexact=mercado)
+        queryset = queryset.filter(mercado=mercado)
     if origen:
         queryset = queryset.filter(origen=origen)
     if periodo:
         queryset = queryset.filter(ejercicio=periodo)
 
     base_visible = calificaciones_visibles(request.user).filter(eliminado=False)
-    mercados_disponibles = (
-        base_visible.exclude(mercado='')
-        .values_list('mercado', flat=True)
-        .distinct()
-        .order_by('mercado')
-    )
+    mercados_disponibles = Calificacion.MERCADOS  # lista controlada
     periodos_disponibles = (
         base_visible.values_list('ejercicio', flat=True)
         .distinct()
@@ -71,6 +66,7 @@ def grilla_calificaciones(request):
         filas.append({
             'obj': calif,
             'factores': valores_factores,
+            'editable': es_editable_por(request.user, calif),
         })
 
     contexto = {
