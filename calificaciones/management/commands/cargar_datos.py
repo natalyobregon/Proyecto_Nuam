@@ -60,7 +60,7 @@ class Command(BaseCommand):
                 continue
             MontoCalificacion.objects.bulk_create([
                 MontoCalificacion(calificacion=cal, numero_columna=n, valor=Decimal(n * 1000 * i))
-                for n in range(8, 37)])                       # 29 montos
+                for n in range(8, 38)])                       # 30 montos
             for n in range(8, 38):                            # 30 factores
                 v = Decimal('0.10000000') if n <= 16 else Decimal('0.01500000')
                 FactorCalificacion(calificacion=cal, numero_columna=n, valor=v).save()

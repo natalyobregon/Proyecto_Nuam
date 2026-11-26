@@ -102,10 +102,10 @@ class Calificacion(models.Model):
 
 
 class MontoCalificacion(models.Model):
-    """29 montos por calificación (columnas 8 a 36 del archivo)."""
+    """30 montos por calificación (columnas 8 a 37 del certificado SII)."""
     calificacion = models.ForeignKey(Calificacion, on_delete=models.CASCADE, related_name='montos')
     numero_columna = models.PositiveSmallIntegerField(
-        validators=[MinValueValidator(8), MaxValueValidator(36)])
+        validators=[MinValueValidator(8), MaxValueValidator(37)])
     valor = models.DecimalField(max_digits=18, decimal_places=2, default=0)
 
     class Meta:
@@ -113,9 +113,8 @@ class MontoCalificacion(models.Model):
         constraints = [models.UniqueConstraint(fields=['calificacion', 'numero_columna'],
                                                name='uq_monto_calif_col')]
 
-
 class FactorCalificacion(models.Model):
-    """30 factores por calificación (columnas 8 a 37). Regla: suma de 8 a 16 <= 1."""
+    """30 factores por calificación (columnas 8 a 37). Regla: suma de 8 a 19 <= 1."""
     calificacion = models.ForeignKey(Calificacion, on_delete=models.CASCADE, related_name='factores')
     numero_columna = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(8), MaxValueValidator(37)])
@@ -128,18 +127,17 @@ class FactorCalificacion(models.Model):
                                                name='uq_factor_calif_col')]
 
     def clean(self):
-        if self.numero_columna is not None and 8 <= self.numero_columna <= 16:
+        if self.numero_columna is not None and 8 <= self.numero_columna <= 19:
             otros = FactorCalificacion.objects.filter(
                 calificacion_id=self.calificacion_id, numero_columna__gte=8,
-                numero_columna__lte=16).exclude(pk=self.pk)
+                numero_columna__lte=19).exclude(pk=self.pk)
             suma = sum((f.valor for f in otros), Decimal('0')) + (self.valor or 0)
             if suma > 1:
-                raise ValidationError('La suma de los factores 8 a 16 no puede superar 1.')
+                raise ValidationError('La suma de los factores 8 a 19 no puede superar 1.')
 
     def save(self, *args, **kwargs):
         self.full_clean(exclude=['calificacion'])
         super().save(*args, **kwargs)
-
 
 class RegistroAuditoria(models.Model):
     """Bitácora append-only: no se edita ni se elimina."""

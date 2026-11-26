@@ -22,7 +22,7 @@ from .calculos import (
     parsear_decimal,
     redondear_8_decimales,
     resolver_factores_editables,
-    validar_suma_factores_8_a_16,
+    validar_suma_factores_8_a_19,
 )
 from .forms import CalificacionBasicaForm
 from .models import Calificacion, FactorCalificacion, MontoCalificacion
@@ -98,7 +98,7 @@ def ingresar_calificacion(request):
         messages.error(request, 'Su usuario no tiene una corredora asignada para ingresar calificaciones.')
         return redirect('grilla')
 
-    columnas_montos = list(range(8, 37))
+    columnas_montos = list(range(8, 38))
     columnas_factores = list(range(8, 38))
     valores_montos = {col: '0' for col in columnas_montos}
     factores_calculados = None
@@ -135,15 +135,8 @@ def ingresar_calificacion(request):
         elif error_monto:
             messages.error(request, error_monto)
         else:
-            calificacion_temp = form.save(commit=False)
-            divisor = (
-                calificacion_temp.valor_historico
-                if calificacion_temp.valor_historico > CERO
-                else calificacion_temp.dividendo
-            )
-
             try:
-                factores_calculados = calcular_factores_desde_montos(montos_decimales, divisor)
+                factores_calculados = calcular_factores_desde_montos(montos_decimales)
             except ValueError as exc:
                 messages.error(request, str(exc))
                 factores_calculados = None
@@ -151,7 +144,7 @@ def ingresar_calificacion(request):
             if factores_calculados is not None:
                 if accion == 'calcular':
                     for col in columnas_factores:
-                        valores_factores[col] = str(redondear_8_decimales(factores_calculados[col]))
+                        valores_factores[col] = format(redondear_8_decimales(factores_calculados[col]), 'f')
                     messages.info(
                         request,
                         'Factores calculados. Revíselos o ajústelos a mano y luego presione "Guardar calificación".'
@@ -165,13 +158,13 @@ def ingresar_calificacion(request):
 
                     if factores_finales is not None:
                         for col in columnas_factores:
-                            valores_factores[col] = str(factores_finales[col])
+                            valores_factores[col] = format(factores_finales[col], 'f')
 
-                        suma_valida, suma_8_16 = validar_suma_factores_8_a_16(factores_finales)
+                        suma_valida, suma_8_19 = validar_suma_factores_8_a_19(factores_finales)
                         if not suma_valida:
                             messages.error(
                                 request,
-                                f'La suma de los factores 8 a 16 ({suma_8_16}) supera 1. No se puede guardar.'
+                                f'La suma de los factores 8 a 19 ({suma_8_19}) supera 1. No se puede guardar.'
                             )
                         else:
                             try:
@@ -248,18 +241,16 @@ def detalle_calificacion(request, pk):
     mapa_montos = {m.numero_columna: m.valor for m in calificacion.montos.all()}
     mapa_factores = {f.numero_columna: f.valor for f in calificacion.factores.all()}
 
-    filas_8_a_36 = [
+    filas = [
         {
             'col': col,
             'monto': mapa_montos.get(col),
             'factor': mapa_factores.get(col),
         }
-        for col in range(8, 37)
+        for col in range(8, 38)
     ]
-    factor_37 = mapa_factores.get(37)
 
     return render(request, 'calificaciones/detalle.html', {
         'calificacion': calificacion,
-        'filas_8_a_36': filas_8_a_36,
-        'factor_37': factor_37,
+        'filas': filas,
     })
