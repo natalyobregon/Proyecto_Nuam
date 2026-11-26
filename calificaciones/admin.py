@@ -45,7 +45,25 @@ class CalificacionAdmin(SoloLectura, admin.ModelAdmin):
 
 @admin.register(RegistroAuditoria)
 class AuditoriaAdmin(admin.ModelAdmin):
-    list_display = ('id_registro', 'fecha', 'usuario', 'accion', 'id_calificacion')
+    """Bitácora de solo lectura. La puede ver el superusuario y el administrador de Nuam (permiso BITACORA)."""
+    list_display = ('id_registro', 'fecha', 'usuario', 'accion', 'id_calificacion', 'ip')
+    list_filter = ('accion', 'fecha')
+    search_fields = ('usuario__username', 'ip')
+    ordering = ('-fecha',)
+
+    def _es_admin_nuam(self, request):
+        u = request.user
+        return u.is_active and u.is_staff and (
+            u.is_superuser or (u.rol == Usuario.ROL_ADMIN and u.corredora_id is None))
+
+    def has_module_permission(self, request):
+        return self._es_admin_nuam(request)
+
+    def has_view_permission(self, request, obj=None):
+        return self._es_admin_nuam(request)
+
+    def has_add_permission(self, request):
+        return False
 
     def has_change_permission(self, request, obj=None):
         return False

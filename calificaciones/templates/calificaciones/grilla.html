@@ -105,13 +105,11 @@
 
           <td class="text-end text-nowrap">
             <a href="{% url 'detalle' c.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>
-            {% if fila.editable and puede_modificar or fila.editable and puede_eliminar %}
-              {% if puede_modificar %}
-                <button type="button" class="btn btn-sm btn-outline-primary" disabled title="Disponible en siguiente paso">Editar</button>
-              {% endif %}
-              {% if puede_eliminar %}
-                <button type="button" class="btn btn-sm btn-outline-danger" disabled title="Disponible en siguiente paso">Eliminar</button>
-              {% endif %}
+            {% if fila.editable and puede_modificar %}
+              <a href="{% url 'editar' c.pk %}" class="btn btn-sm btn-outline-primary">Editar</a>
+            {% endif %}
+            {% if fila.editable and puede_eliminar %}
+              <a href="{% url 'eliminar' c.pk %}" class="btn btn-sm btn-outline-danger">Eliminar</a>
             {% endif %}
           </td>
         </tr>

@@ -160,11 +160,13 @@ class IngresoManualTests(TestCase):
         self.assertEqual(r.status_code, 403)
 
 
+
 class Paso3BolsaYCamposTests(TestCase):
     """Bolsa visible para todas las corredoras, solo lectura, y el corredor prevalece."""
 
     @classmethod
     def setUpTestData(cls):
+        from cuentas.alcance import calificaciones_visibles, es_editable_por  # noqa
         cls.bolsa = Corredora.objects.create(nombre='Bolsa', rut='99.999.999-9', es_bolsa=True)
         cls.corr_a = Corredora.objects.create(nombre='A', rut='76.111.111-1')
         cls.corr_b = Corredora.objects.create(nombre='B', rut='76.222.222-2')
@@ -223,7 +225,7 @@ class Paso3BolsaYCamposTests(TestCase):
         cal = Calificacion.objects.get(instrumento='CFIX')
         self.assertTrue(cal.isfut)
         self.assertEqual(cal.tipo_sociedad, 'C')
-
+        self.assertEqual(cal.numero_dividendo, 3)
 
     def test_mercado_fuera_de_la_lista_se_rechaza(self):
         from calificaciones.forms import CalificacionBasicaForm
@@ -232,3 +234,176 @@ class Paso3BolsaYCamposTests(TestCase):
                                     'valor_historico': '0', 'ejercicio': '2025'})
         self.assertFalse(f.is_valid())
         self.assertIn('mercado', f.errors)
+
+
+
+class Paso4ModificarEliminarTests(TestCase):
+    """HDU 05: el corredor modifica y elimina (lógico) solo lo suyo; todo queda en la bitácora."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.bolsa = Corredora.objects.create(nombre='Bolsa', rut='99.999.999-9', es_bolsa=True)
+        cls.corr_a = Corredora.objects.create(nombre='A', rut='76.111.111-1')
+        cls.corr_b = Corredora.objects.create(nombre='B', rut='76.222.222-2')
+        cls.op_a = Usuario.objects.create_user('op_a', password='x', rol=Usuario.ROL_OPERADOR,
+                                               corredora=cls.corr_a)
+        cls.op_b = Usuario.objects.create_user('op_b', password='x', rol=Usuario.ROL_OPERADOR,
+                                               corredora=cls.corr_b)
+        cls.admin = Usuario.objects.create_user('adm', password='x', rol=Usuario.ROL_ADMIN, is_staff=True)
+
+    def crear(self, corredora=None, origen='local_corredora', instrumento='COPEC'):
+        cal = Calificacion.objects.create(
+            corredora=corredora or self.corr_a, ejercicio=2025, mercado='ACN', instrumento=instrumento,
+            secuencia_evento=10001, origen=origen, tipo_sociedad='A')
+        for col in range(8, 38):
+            MontoCalificacion.objects.create(calificacion=cal, numero_columna=col,
+                                             valor=D('100') if col == 8 else D('0'))
+            FactorCalificacion.objects.create(calificacion=cal, numero_columna=col,
+                                              valor=D('1') if col == 8 else D('0'))
+        return cal
+
+    def post_edicion(self, cal, **cambios):
+        datos = {'mercado': 'ACN', 'instrumento': cal.instrumento, 'secuencia_evento': '10001',
+                 'dividendo': '0', 'tipo_sociedad': 'A', 'fecha_pago': '2025-05-15',
+                 'valor_historico': '0', 'ejercicio': '2025', 'descripcion': '', 'accion': 'guardar',
+                 **{f'monto_{c}': '100' if c == 8 else '0' for c in range(8, 38)},
+                 **{f'factor_{c}': '1.00000000' if c == 8 else '0.00000000' for c in range(8, 38)}}
+        datos.update(cambios)
+        return datos
+
+    def test_modificar_descripcion_guarda_y_registra_antes_y_despues(self):
+        from calificaciones.models import RegistroAuditoria
+        cal = self.crear()
+        self.client.force_login(self.op_a)
+        r = self.client.post(reverse('editar', args=[cal.pk]),
+                             self.post_edicion(cal, descripcion='Nueva descripcion'))
+        self.assertRedirects(r, reverse('grilla'))
+        cal.refresh_from_db()
+        self.assertEqual(cal.descripcion, 'Nueva descripcion')
+        log = RegistroAuditoria.objects.get(accion='modificar')
+        self.assertEqual(log.usuario, self.op_a)
+        self.assertEqual(log.id_calificacion, cal.pk)
+        self.assertEqual(log.detalle['corredora_id'], self.corr_a.pk)
+        self.assertEqual(log.detalle['cambios']['descripcion'], {'antes': '', 'despues': 'Nueva descripcion'})
+        self.assertNotIn('instrumento', log.detalle['cambios'])      # solo lo que cambió
+
+    def test_modificar_montos_exige_recalcular_factores(self):
+        cal = self.crear()
+        self.client.force_login(self.op_a)
+        datos = self.post_edicion(cal, monto_8='50', monto_9='50')
+        r = self.client.post(reverse('editar', args=[cal.pk]), datos)
+        self.assertContains(r, 'Calcular factores')
+        cal.refresh_from_db()
+        self.assertEqual(cal.montos.get(numero_columna=8).valor, D('100'))   # no se grabó
+
+    def test_modificar_con_factores_recalculados_graba(self):
+        cal = self.crear()
+        self.client.force_login(self.op_a)
+        datos = self.post_edicion(cal, monto_8='50', monto_9='50', factor_8='0.50000000', factor_9='0.50000000')
+        self.client.post(reverse('editar', args=[cal.pk]), datos)
+        self.assertEqual(cal.factores.get(numero_columna=9).valor, D('0.5'))
+        self.assertEqual(cal.montos.get(numero_columna=9).valor, D('50'))
+
+    def test_modificar_suma_mayor_a_1_no_graba(self):
+        cal = self.crear()
+        self.client.force_login(self.op_a)
+        datos = self.post_edicion(cal, factor_9='0.50000000')
+        r = self.client.post(reverse('editar', args=[cal.pk]), datos)
+        self.assertContains(r, 'supera 1')
+        self.assertEqual(cal.factores.get(numero_columna=9).valor, D('0'))
+
+    def test_no_se_puede_modificar_lo_de_otra_corredora_ni_la_bolsa(self):
+        ajena = self.crear(self.corr_b, instrumento='AJENA')
+        oficial = self.crear(self.bolsa, origen='oficial_bolsa', instrumento='OFICIAL')
+        self.client.force_login(self.op_a)
+        for cal in (ajena, oficial):
+            self.assertEqual(self.client.get(reverse('editar', args=[cal.pk])).status_code, 403)
+            r = self.client.post(reverse('editar', args=[cal.pk]), self.post_edicion(cal, descripcion='X'))
+            self.assertEqual(r.status_code, 403)
+            cal.refresh_from_db()
+            self.assertEqual(cal.descripcion, '')
+
+    def test_administrador_no_modifica_ni_elimina(self):
+        cal = self.crear()
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse('editar', args=[cal.pk])).status_code, 403)
+        self.assertEqual(self.client.post(reverse('eliminar', args=[cal.pk])).status_code, 403)
+        cal.refresh_from_db()
+        self.assertFalse(cal.eliminado)
+
+    def test_eliminar_get_pide_confirmacion_y_no_elimina(self):
+        cal = self.crear()
+        self.client.force_login(self.op_a)
+        r = self.client.get(reverse('eliminar', args=[cal.pk]))
+        self.assertContains(r, '¿Está seguro')
+        cal.refresh_from_db()
+        self.assertFalse(cal.eliminado)
+
+    def test_eliminar_post_es_logico_desaparece_de_la_grilla_y_se_registra(self):
+        from calificaciones.models import RegistroAuditoria
+        cal = self.crear()
+        self.client.force_login(self.op_a)
+        self.client.post(reverse('eliminar', args=[cal.pk]))
+        cal.refresh_from_db()
+        self.assertTrue(cal.eliminado)                          # sigue en la base
+        self.assertEqual(Calificacion.objects.filter(pk=cal.pk).count(), 1)
+        r = self.client.get(reverse('grilla'))
+        self.assertNotIn(cal.pk, [f['obj'].pk for f in r.context['filas']])
+        self.assertEqual(self.client.get(reverse('detalle', args=[cal.pk])).status_code, 404)
+        log = RegistroAuditoria.objects.get(accion='eliminar')
+        self.assertEqual(log.detalle['antes']['instrumento'], 'COPEC')
+        self.assertEqual(log.detalle['corredora_id'], self.corr_a.pk)
+
+    def test_no_se_elimina_lo_ajeno_ni_lo_oficial(self):
+        ajena = self.crear(self.corr_b, instrumento='AJENA')
+        oficial = self.crear(self.bolsa, origen='oficial_bolsa', instrumento='OFICIAL')
+        self.client.force_login(self.op_a)
+        for cal in (ajena, oficial):
+            self.assertEqual(self.client.post(reverse('eliminar', args=[cal.pk])).status_code, 403)
+            cal.refresh_from_db()
+            self.assertFalse(cal.eliminado)
+
+    def test_reingresar_una_eliminada_la_reactiva_sin_chocar_con_la_llave(self):
+        cal = self.crear()
+        self.client.force_login(self.op_a)
+        self.client.post(reverse('eliminar', args=[cal.pk]))
+        datos = {**self.post_edicion(cal), 'descripcion': 'De nuevo'}
+        for c in range(8, 38):
+            datos.pop(f'factor_{c}')
+        r = self.client.post(reverse('ingresar'), datos)
+        self.assertRedirects(r, reverse('grilla'))
+        self.assertEqual(Calificacion.objects.filter(instrumento='COPEC').count(), 1)
+        cal.refresh_from_db()
+        self.assertFalse(cal.eliminado)
+        self.assertEqual(cal.descripcion, 'De nuevo')
+
+    def test_el_ingreso_registra_despues_y_corredora(self):
+        from calificaciones.models import RegistroAuditoria
+        self.client.force_login(self.op_a)
+        datos = self.post_edicion(Calificacion(instrumento='NUEVA'))
+        for c in range(8, 38):
+            datos.pop(f'factor_{c}')
+        self.client.post(reverse('ingresar'), datos)
+        log = RegistroAuditoria.objects.get(accion='crear')
+        self.assertEqual(log.detalle['corredora_id'], self.corr_a.pk)
+        self.assertEqual(log.detalle['despues']['instrumento'], 'NUEVA')
+
+    def test_grilla_muestra_editar_y_eliminar_solo_en_filas_propias(self):
+        propia = self.crear()
+        oficial = self.crear(self.bolsa, origen='oficial_bolsa', instrumento='OFICIAL')
+        self.client.force_login(self.op_a)
+        html = self.client.get(reverse('grilla')).content.decode()
+        self.assertIn(reverse('editar', args=[propia.pk]), html)
+        self.assertIn(reverse('eliminar', args=[propia.pk]), html)
+        self.assertNotIn(reverse('editar', args=[oficial.pk]), html)
+        self.assertNotIn(reverse('eliminar', args=[oficial.pk]), html)
+
+
+    def test_admin_nuam_ve_la_bitacora_en_el_admin_de_django_pero_no_la_modifica(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get('/admin/calificaciones/registroauditoria/').status_code, 200)
+        self.assertEqual(self.client.get('/admin/calificaciones/registroauditoria/add/').status_code, 403)
+
+    def test_operador_no_ve_la_bitacora(self):
+        self.client.force_login(self.op_a)
+        self.assertNotEqual(self.client.get('/admin/calificaciones/registroauditoria/').status_code, 200)

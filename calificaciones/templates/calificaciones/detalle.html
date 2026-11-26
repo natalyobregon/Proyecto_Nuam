@@ -1,11 +1,14 @@
 {% extends 'base.html' %}
 {% block titulo %}Detalle calificación{% endblock %}
-esto es para que el sistema sepa que el titulo de la pagina es detalle calificacion
 
 {% block contenido %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h4 fw-bold mb-0">Detalle de calificación</h1>
-  <a href="{% url 'grilla' %}" class="btn btn-outline-secondary btn-sm">Volver a la grilla</a>
+  <div class="d-flex gap-2">
+    {% if editable and puede_modificar %}<a href="{% url 'editar' calificacion.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>{% endif %}
+    {% if editable and puede_eliminar %}<a href="{% url 'eliminar' calificacion.pk %}" class="btn btn-outline-danger btn-sm">Eliminar</a>{% endif %}
+    <a href="{% url 'grilla' %}" class="btn btn-outline-secondary btn-sm">Volver a la grilla</a>
+  </div>
 </div>
 
 <div class="card card-body shadow-sm mb-3">
@@ -34,18 +37,13 @@ esto es para que el sistema sepa que el titulo de la pagina es detalle calificac
       </tr>
     </thead>
     <tbody>
-      {% for fila in filas_8_a_36 %}
+      {% for fila in filas %}
         <tr>
           <td>Columna {{ fila.col }}</td>
           <td class="text-end font-monospace">{% if fila.monto is not None %}{{ fila.monto }}{% else %}0{% endif %}</td>
           <td class="text-end font-monospace">{% if fila.factor is not None %}{{ fila.factor|floatformat:8 }}{% else %}0.00000000{% endif %}</td>
         </tr>
       {% endfor %}
-      <tr>
-        <td>Columna 37</td>
-        <td class="text-end text-muted">—</td>
-        <td class="text-end font-monospace">{% if factor_37 is not None %}{{ factor_37|floatformat:8 }}{% else %}0.00000000{% endif %}</td>
-      </tr>
     </tbody>
   </table>
 </div>

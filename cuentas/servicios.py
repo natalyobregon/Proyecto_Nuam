@@ -30,6 +30,63 @@ def auditar(request, accion, usuario=None, **detalle):
         usuario=usuario, accion=accion, ip=ip_cliente(request), detalle=detalle or None)
 
 
+CAMPOS_AUDITADOS = ['mercado', 'instrumento', 'ejercicio', 'secuencia_evento', 'numero_dividendo',
+                    'dividendo', 'tipo_sociedad', 'isfut', 'fecha_pago', 'valor_historico', 'descripcion']
+
+
+def _texto(valor):
+    if valor is None:
+        return None
+    if hasattr(valor, 'isoformat'):
+        return valor.isoformat()
+    if isinstance(valor, bool):
+        return valor
+    if hasattr(valor, 'quantize'):          # Decimal sin notación científica
+        return format(valor, 'f')
+    return valor
+
+
+def instantanea(calificacion, montos=None, factores=None):
+    """Foto de una calificación para la bitácora (campos básicos y, si se pasan, montos/factores).
+
+    montos / factores: dict {columna: Decimal}. Solo se guardan los distintos de 0 para no inflar el JSON.
+    """
+    foto = {campo: _texto(getattr(calificacion, campo)) for campo in CAMPOS_AUDITADOS}
+    for prefijo, valores in (('monto', montos), ('factor', factores)):
+        for col, valor in sorted((valores or {}).items()):
+            foto[f'{prefijo}_{col}'] = _texto(valor)
+    return foto
+
+
+def registrar(request, accion, usuario, calificacion, antes=None, despues=None, **extra):
+    """Bitácora de calificaciones: quién, cuándo, desde dónde, de qué corredora y qué cambió.
+
+    - crear:     guarda `despues`.
+    - modificar: guarda `antes`/`despues` y `cambios` (solo lo que cambió).
+    - eliminar:  guarda `antes`.
+    """
+    detalle = {
+        'corredora_id': calificacion.corredora_id,
+        'corredora': calificacion.corredora.nombre,
+        'instrumento': calificacion.instrumento,
+        'ejercicio': calificacion.ejercicio,
+        **extra,
+    }
+    if antes is not None and despues is not None:
+        detalle['cambios'] = {
+            clave: {'antes': antes.get(clave), 'despues': despues.get(clave)}
+            for clave in sorted(set(antes) | set(despues))
+            if antes.get(clave) != despues.get(clave)
+        }
+    elif antes is not None:
+        detalle['antes'] = antes
+    elif despues is not None:
+        detalle['despues'] = despues
+    RegistroAuditoria.objects.create(
+        usuario=usuario, accion=accion, id_calificacion=calificacion.id_calificacion,
+        ip=ip_cliente(request), detalle=detalle)
+
+
 def _registrar_fallo(usuario):
     """Suma un intento fallido de forma atomica y bloquea al llegar al maximo."""
     Usuario = get_user_model()

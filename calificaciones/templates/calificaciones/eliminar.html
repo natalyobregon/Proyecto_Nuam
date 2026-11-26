@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block titulo %}Eliminar calificación{% endblock %}
+
+{% block contenido %}
+<h1 class="h4 fw-bold mb-3">Eliminar calificación</h1>
+
+<div class="card card-body shadow-sm" style="max-width: 640px;">
+  <p class="mb-2">¿Está seguro de que desea eliminar esta calificación?</p>
+  <ul class="small mb-3">
+    <li><strong>Instrumento:</strong> {{ calificacion.instrumento }}</li>
+    <li><strong>Mercado:</strong> {{ calificacion.mercado }}</li>
+    <li><strong>Ejercicio:</strong> {{ calificacion.ejercicio }}</li>
+    <li><strong>Secuencia:</strong> {{ calificacion.secuencia_evento }}</li>
+  </ul>
+  <p class="small text-muted">La calificación dejará de mostrarse. La acción queda registrada en la bitácora.</p>
+  <form method="post" class="d-flex gap-2">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Sí, eliminar</button>
+    <a href="{% url 'grilla' %}" class="btn btn-outline-secondary">Cancelar</a>
+  </form>
+</div>
+{% endblock %}
