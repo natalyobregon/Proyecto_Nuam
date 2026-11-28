@@ -103,6 +103,14 @@ DATABASES = {
 }
 
 
+# Conexion de administrador (solo para migrar y para `permisos_db`). La aplicacion corre con DB_USER,
+# que tiene minimo privilegio. Uso: python manage.py migrate --database=admin
+if os.getenv('DB_ADMIN_USER'):
+    DATABASES['admin'] = {**DATABASES['default'],
+                          'USER': os.getenv('DB_ADMIN_USER'),
+                          'PASSWORD': os.getenv('DB_ADMIN_PASSWORD', '')}
+
+
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
 
