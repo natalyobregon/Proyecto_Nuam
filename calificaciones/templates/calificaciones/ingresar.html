@@ -1,9 +1,10 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block titulo %}{% if modo == 'editar' %}Modificar calificación{% else %}Ingresar calificación{% endif %}{% endblock %}
 
 {% block contenido %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h4 fw-bold mb-0">{% if modo == 'editar' %}Modificar calificación{% else %}Ingresar calificación — Datos básicos{% endif %}</h1>
+  <h1 class="h4 fw-bold mb-0">{% if modo == 'editar' %}Modificar calificación{% else %}Ingresar calificación{% endif %}</h1>
   <a href="{% url 'grilla' %}" class="btn btn-outline-secondary btn-sm">Volver a la grilla</a>
 </div>
 
@@ -15,9 +16,19 @@
   {% endfor %}
 {% endif %}
 
-<form method="post" novalidate class="card card-body shadow-sm">
+<form method="post" novalidate class="card card-body shadow-sm" id="form-ingreso" data-paso-inicial="{{ paso_inicial }}">
   {% csrf_token %}
 
+  {# Navegación del asistente: la activa ingreso_pasos.js. Sin JavaScript se ve todo en una sola pantalla. #}
+  <ol class="pasos-nav d-none" id="pasos-nav" aria-label="Pasos del formulario">
+    <li><button type="button" class="paso-btn" data-ir-paso="1"><span class="paso-num">1</span><span>Datos básicos</span></button></li>
+    <li><button type="button" class="paso-btn" data-ir-paso="2"><span class="paso-num">2</span><span>Montos</span></button></li>
+    <li><button type="button" class="paso-btn" data-ir-paso="3"><span class="paso-num">3</span><span>Factores y guardado</span></button></li>
+  </ol>
+  <p class="visually-hidden" id="paso-estado" aria-live="polite"></p>
+
+  <section data-paso="1" aria-labelledby="titulo-paso-1">
+  <h2 class="h6 fw-bold mb-3" id="titulo-paso-1" tabindex="-1">Paso 1 de 3 · Datos básicos</h2>
   <div class="row g-3">
     <div class="col-12 col-md-6">
       <label for="{{ form.mercado.id_for_label }}" class="form-label fw-semibold">Mercado *</label>
@@ -87,8 +98,11 @@
     </div>
   </div>
 
-  <hr class="my-4">
-  <h2 class="h6 fw-bold mb-2">2. Montos de calificación (Columnas 8 a 37)</h2>
+  </section>
+
+  <section data-paso="2" aria-labelledby="titulo-paso-2">
+  <hr class="my-4 solo-sin-pasos">
+  <h2 class="h6 fw-bold mb-2" id="titulo-paso-2" tabindex="-1">Paso 2 de 3 · Montos de calificación (columnas 8 a 37)</h2>
   <p class="small text-muted mb-3">
     Ingrese los 30 montos (columnas 8 a 37). Las columnas que no aplican quedan en 0. Los factores se calcularán automáticamente con 8 decimales exactos.
   </p>
@@ -110,9 +124,22 @@
     {% endfor %}
   </div>
 
- {% if mostrar_factores %}
-    <hr class="my-4">
-    <h2 class="h6 fw-bold mb-2">3. Factores (Columnas 8 a 37 — Ajuste manual opcional)</h2>
+  </section>
+
+  <section data-paso="3" aria-labelledby="titulo-paso-3">
+  <hr class="my-4 solo-sin-pasos">
+  <h2 class="h6 fw-bold mb-2" id="titulo-paso-3" tabindex="-1">Paso 3 de 3 · Factores y guardado</h2>
+
+  <dl class="row small mb-3 d-none" id="resumen-ingreso" aria-label="Resumen de lo ingresado">
+    <dt class="col-6 col-md-2">Mercado</dt><dd class="col-6 col-md-4" data-resumen="mercado"></dd>
+    <dt class="col-6 col-md-2">Instrumento</dt><dd class="col-6 col-md-4" data-resumen="instrumento"></dd>
+    <dt class="col-6 col-md-2">Ejercicio</dt><dd class="col-6 col-md-4" data-resumen="ejercicio"></dd>
+    <dt class="col-6 col-md-2">Secuencia</dt><dd class="col-6 col-md-4" data-resumen="secuencia"></dd>
+    <dt class="col-6 col-md-2">Fecha de pago</dt><dd class="col-6 col-md-4" data-resumen="fecha"></dd>
+    <dt class="col-6 col-md-2">Montos ingresados</dt><dd class="col-6 col-md-4" data-resumen="montos"></dd>
+  </dl>
+
+  {% if mostrar_factores %}
     <p class="small text-muted mb-3">
       Puede ajustar los factores antes de guardar. La suma de los factores 8 a 19 no puede superar 1.
     </p>
@@ -132,16 +159,26 @@
         </div>
       {% endfor %}
     </div>
+  {% else %}
+    <p class="small text-muted mb-0">
+      Presione «Calcular factores» para ver los factores calculados con 8 decimales y ajustarlos a mano si lo necesita.
+      También puede guardar directamente: se usarán los factores calculados.
+    </p>
   {% endif %}
+  </section>
 
   <div class="mt-4 pt-3 border-top d-flex flex-wrap justify-content-end align-items-center gap-2">
     <a href="{% url 'grilla' %}" class="btn btn-outline-secondary">Cancelar</a>
-    <button type="submit" name="accion" value="calcular" class="btn btn-outline-primary">
+    <button type="button" class="btn btn-outline-secondary d-none" data-accion="anterior">Anterior</button>
+    <button type="button" class="btn btn-primary d-none" data-accion="siguiente">Siguiente</button>
+    <button type="submit" name="accion" value="calcular" class="btn btn-outline-primary" data-solo-paso="3">
       Calcular factores
     </button>
-    <button type="submit" name="accion" value="guardar" class="btn btn-primary">
+    <button type="submit" name="accion" value="guardar" class="btn btn-primary" data-solo-paso="3">
       {% if modo == 'editar' %}Guardar cambios{% else %}Guardar calificación{% endif %}
     </button>
   </div>
 </form>
 {% endblock %}
+
+{% block scripts %}<script src="{% static 'js/ingreso_pasos.js' %}"></script>{% endblock %}

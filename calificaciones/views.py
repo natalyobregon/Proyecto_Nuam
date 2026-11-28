@@ -134,6 +134,7 @@ def _gestionar_formulario(request, calificacion=None):
     valores_factores = {col: format(factores_previos[col], 'f') if col in factores_previos else ''
                         for col in COLUMNAS}
     factores_calculados = None
+    paso_inicial = 1     # paso del asistente que se muestra al abrir la pantalla
 
     if request.method == 'POST':
         form = CalificacionBasicaForm(request.POST, instance=calificacion)
@@ -152,6 +153,9 @@ def _gestionar_formulario(request, calificacion=None):
                 break
             montos[col] = dec
 
+        # Si algo falla, el asistente reabre en el paso donde está el problema; si todo va bien, en el 3.
+        paso_inicial = 1 if not form_ok else (2 if error_monto else 3)
+
         if not form_ok:
             _marcar_invalidos(form)
             messages.error(request, 'Revise los campos obligatorios resaltados antes de continuar.')
@@ -162,6 +166,7 @@ def _gestionar_formulario(request, calificacion=None):
                 factores_calculados = calcular_factores_desde_montos(montos)
             except ValueError as exc:
                 messages.error(request, str(exc))
+                paso_inicial = 2
 
             if factores_calculados is not None:
                 if accion == 'calcular':
@@ -214,6 +219,7 @@ def _gestionar_formulario(request, calificacion=None):
         'campos_montos': campos_montos,
         'campos_factores': campos_factores,
         'mostrar_factores': mostrar_factores,
+        'paso_inicial': paso_inicial,
     })
 
 
