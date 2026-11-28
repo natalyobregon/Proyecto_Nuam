@@ -1,11 +1,14 @@
 {% extends 'base.html' %}
 {% block titulo %}Detalle calificación{% endblock %}
-esto es para que el sistema sepa que el titulo de la pagina es detalle calificacion
 
 {% block contenido %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h4 fw-bold mb-0">Detalle de calificación</h1>
-  <a href="{% url 'grilla' %}" class="btn btn-outline-secondary btn-sm">Volver a la grilla</a>
+  <div class="d-flex gap-2">
+    {% if editable and puede_modificar %}<a href="{% url 'editar' calificacion.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>{% endif %}
+    {% if editable and puede_eliminar %}<a href="{% url 'eliminar' calificacion.pk %}" class="btn btn-outline-danger btn-sm">Eliminar</a>{% endif %}
+    <a href="{% url 'grilla' %}" class="btn btn-outline-secondary btn-sm">Volver a la grilla</a>
+  </div>
 </div>
 
 <div class="card card-body shadow-sm mb-3">
@@ -13,10 +16,13 @@ esto es para que el sistema sepa que el titulo de la pagina es detalle calificac
     <div class="col-6 col-md-3"><strong>Corredora:</strong> {{ calificacion.corredora.nombre }}</div>
     <div class="col-6 col-md-3"><strong>Mercado:</strong> {{ calificacion.mercado }}</div>
     <div class="col-6 col-md-3"><strong>Instrumento:</strong> {{ calificacion.instrumento }}</div>
-    <div class="col-6 col-md-3"><strong>Ejercicio:</strong> {{ calificacion.ejercicio }}</div>
-    <div class="col-6 col-md-3"><strong>Secuencia:</strong> {{ calificacion.secuencia_evento }}</div>
-    <div class="col-6 col-md-3"><strong>Dividendo:</strong> {{ calificacion.dividendo }}</div>
-    <div class="col-6 col-md-3"><strong>Valor histórico:</strong> {{ calificacion.valor_historico }}</div>
+    <div class="col-6 col-md-3"><strong>Ejercicio:</strong> {{ calificacion.ejercicio|stringformat:"d" }}</div>
+    <div class="col-6 col-md-3"><strong>Secuencia:</strong> {{ calificacion.secuencia_evento|stringformat:"d" }}</div>
+    <div class="col-6 col-md-3"><strong>N.° dividendo:</strong> {{ calificacion.numero_dividendo|default_if_none:"—" }}</div>
+    <div class="col-6 col-md-3"><strong>Tipo sociedad:</strong> {{ calificacion.tipo_sociedad }}</div>
+    <div class="col-6 col-md-3"><strong>ISFUT:</strong> {% if calificacion.isfut %}Sí{% else %}No{% endif %}</div>
+    <div class="col-6 col-md-3"><strong>Dividendo:</strong> {{ calificacion.dividendo|stringformat:"s" }}</div>
+    <div class="col-6 col-md-3"><strong>Valor histórico:</strong> {{ calificacion.valor_historico|stringformat:"s" }}</div>
     <div class="col-6 col-md-3"><strong>Fecha pago:</strong> {{ calificacion.fecha_pago|date:"d/m/Y"|default:"—" }}</div>
     <div class="col-6 col-md-4"><strong>Origen:</strong> {{ calificacion.get_origen_display }}</div>
     <div class="col-6 col-md-4"><strong>Fuente:</strong> {{ calificacion.get_fuente_ingreso_display }}</div>
@@ -34,18 +40,13 @@ esto es para que el sistema sepa que el titulo de la pagina es detalle calificac
       </tr>
     </thead>
     <tbody>
-      {% for fila in filas_8_a_36 %}
+      {% for fila in filas %}
         <tr>
           <td>Columna {{ fila.col }}</td>
-          <td class="text-end font-monospace">{% if fila.monto is not None %}{{ fila.monto }}{% else %}0{% endif %}</td>
-          <td class="text-end font-monospace">{% if fila.factor is not None %}{{ fila.factor|floatformat:8 }}{% else %}0.00000000{% endif %}</td>
+          <td class="text-end font-monospace">{% if fila.monto is not None %}{{ fila.monto|stringformat:"s" }}{% else %}0.00{% endif %}</td>
+          <td class="text-end font-monospace">{% if fila.factor is not None %}{{ fila.factor|stringformat:"s" }}{% else %}0.00000000{% endif %}</td>
         </tr>
       {% endfor %}
-      <tr>
-        <td>Columna 37</td>
-        <td class="text-end text-muted">—</td>
-        <td class="text-end font-monospace">{% if factor_37 is not None %}{{ factor_37|floatformat:8 }}{% else %}0.00000000{% endif %}</td>
-      </tr>
     </tbody>
   </table>
 </div>

@@ -16,6 +16,8 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **opts):
+        bolsa, _ = Corredora.objects.get_or_create(
+            rut='99.999.999-9', defaults={'nombre': 'Bolsa (oficial)', 'es_bolsa': True})
         corr_a, _ = Corredora.objects.get_or_create(rut='76.111.111-1', defaults={'nombre': 'Corredora Andes S.A.'})  
         corr_b, _ = Corredora.objects.get_or_create(rut='76.222.222-2', defaults={'nombre': 'Corredora Pacifico S.A.'})
 
@@ -39,13 +41,16 @@ class Command(BaseCommand):
                       'detalle_errores': [{'fila': 4, 'columna': 12,
                                            'error': 'La suma de factores 8-16 supera 1'}]})
 
+        # (corredora, ejercicio, mercado, instrumento, secuencia, origen, fuente, carga)
+        # Evento COPEC 10001: la Bolsa y Andes lo tienen; para Andes prevalece el suyo.
         filas = [
-            (corr_a, 2025, 'ACCIONES', 'COPEC', 1, 'oficial_bolsa', 'archivo', carga),
-            (corr_a, 2025, 'ACCIONES', 'CENCOSUD', 1, 'oficial_bolsa', 'archivo', carga),
-            (corr_a, 2025, 'ACCIONES', 'SQM-B', 2, 'local_corredora', 'manual', None),
-            (corr_a, 2024, 'FONDOS', 'CFIBCI', 1, 'oficial_bolsa', 'sistema', None),
-            (corr_b, 2025, 'ACCIONES', 'FALABELLA', 1, 'oficial_bolsa', 'archivo', None),
-            (corr_b, 2025, 'ACCIONES', 'ENELAM', 3, 'local_corredora', 'manual', None),
+            (bolsa, 2025, 'ACN', 'COPEC', 10001, 'oficial_bolsa', 'sistema', None),
+            (bolsa, 2025, 'ACN', 'CENCOSUD', 10001, 'oficial_bolsa', 'sistema', None),
+            (bolsa, 2024, 'CFI', 'CFIBCI', 10001, 'oficial_bolsa', 'sistema', None),
+            (corr_a, 2025, 'ACN', 'COPEC', 10001, 'local_corredora', 'archivo', carga),
+            (corr_a, 2025, 'ACN', 'SQM-B', 10002, 'local_corredora', 'manual', None),
+            (corr_b, 2025, 'ACN', 'FALABELLA', 10001, 'local_corredora', 'archivo', None),
+            (corr_b, 2025, 'ACN', 'ENELAM', 10003, 'local_corredora', 'manual', None),
         ]
         for i, (corr, ejer, merc, instr, sec, origen, fuente, c) in enumerate(filas, start=1):
             cal, creada = Calificacion.objects.get_or_create(
@@ -53,19 +58,20 @@ class Command(BaseCommand):
                 secuencia_evento=sec, origen=origen,
                 defaults={'carga': c, 'dividendo': Decimal('1250.50') * i,
                           'fecha_pago': date(ejer, 5, 15), 'valor_historico': Decimal('98000.00') * i,
-                          'factor_actualizacion': Decimal('1.02340000'),
+                          'factor_actualizacion': Decimal('0'), 'tipo_sociedad': 'A', 'isfut': i == 3,
+                          'numero_dividendo': i,
                           'descripcion': f'Calificacion de ejemplo {instr}',
                           'fuente_ingreso': fuente})
             if not creada:
                 continue
             MontoCalificacion.objects.bulk_create([
                 MontoCalificacion(calificacion=cal, numero_columna=n, valor=Decimal(n * 1000 * i))
-                for n in range(8, 37)])                       # 29 montos
+                for n in range(8, 38)])                       # 30 montos
             for n in range(8, 38):                            # 30 factores
                 v = Decimal('0.10000000') if n <= 16 else Decimal('0.01500000')
                 FactorCalificacion(calificacion=cal, numero_columna=n, valor=v).save()
             RegistroAuditoria.objects.create(
-                usuario=admin if corr is None else op_a, id_calificacion=cal.id_calificacion,
+                usuario=op_a if corr == corr_a else admin, id_calificacion=cal.id_calificacion,
                 accion='crear', ip='127.0.0.1', detalle={'fuente_ingreso': fuente, 'origen': origen})
 
         self.stdout.write(self.style.SUCCESS(

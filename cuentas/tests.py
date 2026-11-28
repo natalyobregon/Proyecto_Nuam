@@ -14,7 +14,7 @@ from django.utils import timezone
 from calificaciones.models import Calificacion, Corredora, RegistroAuditoria, Usuario
 
 from .alcance import calificaciones_visibles, obtener_calificacion
-from .permisos import (ELIMINAR, INGRESAR, MODIFICAR, CARGA_MASIVA, CONSULTAR,
+from .permisos import (BITACORA, ELIMINAR, INGRESAR, MODIFICAR, CARGA_MASIVA, CONSULTAR,
                        permiso_requerido, tiene_permiso)
 
 CLAVE = 'Ventana123$'
@@ -22,7 +22,7 @@ CLAVE = 'Ventana123$'
 
 def crear_calificacion(corredora, instrumento, descripcion=''):
     return Calificacion.objects.create(
-        corredora=corredora, ejercicio=2025, mercado='ACCIONES', instrumento=instrumento,
+        corredora=corredora, ejercicio=2025, mercado='ACN', instrumento=instrumento,
         secuencia_evento=1, descripcion=descripcion)
 
 
@@ -214,18 +214,19 @@ class AccesoTests(BaseTest):
 
 
 class PermisosTests(BaseTest):
-    def test_matriz_de_permisos_del_informe(self):
-        for p in (CONSULTAR, INGRESAR, CARGA_MASIVA):
+    def test_matriz_de_permisos(self):
+        # Operador: consulta, ingresa, modifica, elimina y carga lo de su corredora (HDU 05).
+        for p in (CONSULTAR, INGRESAR, MODIFICAR, ELIMINAR, CARGA_MASIVA):
             self.assertTrue(tiene_permiso(self.op_a, p), p)
-        for p in (MODIFICAR, ELIMINAR):
-            self.assertFalse(tiene_permiso(self.op_a, p), p)
-        for p in (CONSULTAR, MODIFICAR, ELIMINAR):
+        self.assertFalse(tiene_permiso(self.op_a, BITACORA))
+        # Administrador: consulta y controla accesos; no modifica calificaciones.
+        for p in (CONSULTAR, BITACORA):
             self.assertTrue(tiene_permiso(self.admin, p), p)
-        for p in (INGRESAR, CARGA_MASIVA):
+        for p in (INGRESAR, MODIFICAR, ELIMINAR, CARGA_MASIVA):
             self.assertFalse(tiene_permiso(self.admin, p), p)
 
     def test_decorador_deniega_y_registra_el_intento(self):
-        @permiso_requerido(ELIMINAR)
+        @permiso_requerido(BITACORA)
         def vista(request):
             return None
 
@@ -239,7 +240,7 @@ class PermisosTests(BaseTest):
         self.assertEqual(reg.ip, '10.0.0.5')
 
     def test_decorador_deja_pasar_al_rol_correcto(self):
-        @permiso_requerido(ELIMINAR)
+        @permiso_requerido(BITACORA)
         def vista(request):
             return 'ok'
 
@@ -250,7 +251,7 @@ class PermisosTests(BaseTest):
     def test_decorador_sin_sesion_redirige_al_login(self):
         from django.contrib.auth.models import AnonymousUser
 
-        @permiso_requerido(ELIMINAR)
+        @permiso_requerido(BITACORA)
         def vista(request):
             return 'ok'
 

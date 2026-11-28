@@ -3,16 +3,17 @@
 
 {% block contenido %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-    <h1 class="h4 fw-bold mb-0">Calificaciones tributarias</h1>
+  <h1 class="h4 fw-bold mb-0">Calificaciones tributarias</h1>
 
-    <div class="d-flex flex-wrap gap-2">
-        {% if puede_ingresar %}
-        <a href="{% url 'ingresar' %}" class="btn btn-primary">Ingresar</a>
-        {% endif %}
+  <div class="d-flex flex-wrap gap-2">
+    {% if puede_ingresar %}
+      <a href="{% url 'ingresar' %}" class="btn btn-primary">Ingresar</a>
+    {% endif %}
     {% if puede_carga_masiva %}
-      <button type="button" class="btn btn-outline-primary" disabled title="Disponible en el siguiente paso">
-        Carga masiva
-      </button>
+      <a href="{% url 'carga_masiva' %}" class="btn btn-outline-primary">Carga masiva</a>
+    {% endif %}
+    {% if puede_bitacora %}
+      <a href="{% url 'bitacora' %}" class="btn btn-outline-primary">Bitácora</a>
     {% endif %}
     {% if puede_admin_usuarios %}
       <a href="/admin/" class="btn btn-outline-secondary">Administración</a>
@@ -20,20 +21,32 @@
   </div>
 </div>
 
+{% if messages %}
+  {% for msg in messages %}
+    <div class="alert alert-{% if msg.tags == 'error' %}danger{% else %}{{ msg.tags }}{% endif %}" role="alert">{{ msg }}</div>
+  {% endfor %}
+{% endif %}
+
 <!-- Filtros -->
 <form method="get" class="card card-body mb-3 shadow-sm">
   <div class="row g-2 align-items-end">
     <div class="col-12 col-md-3">
+      <label for="filtro-instrumento" class="form-label small fw-semibold mb-1">Instrumento</label>
+      <input type="search" id="filtro-instrumento" name="instrumento" maxlength="30"
+             value="{{ filtro_instrumento }}" placeholder="Ej: COPEC" class="form-control form-control-sm">
+    </div>
+
+    <div class="col-6 col-md-2">
       <label for="filtro-mercado" class="form-label small fw-semibold mb-1">Mercado</label>
       <select id="filtro-mercado" name="mercado" class="form-select form-select-sm">
         <option value="">Todos</option>
-        {% for m in mercados_disponibles %}
-          <option value="{{ m }}" {% if filtro_mercado == m %}selected{% endif %}>{{ m }}</option>
+        {% for codigo, etiqueta in mercados_disponibles %}
+          <option value="{{ codigo }}" {% if filtro_mercado == codigo %}selected{% endif %}>{{ etiqueta }}</option>
         {% endfor %}
       </select>
     </div>
 
-    <div class="col-12 col-md-3">
+    <div class="col-6 col-md-2">
       <label for="filtro-origen" class="form-label small fw-semibold mb-1">Origen</label>
       <select id="filtro-origen" name="origen" class="form-select form-select-sm">
         <option value="">Todos</option>
@@ -43,82 +56,106 @@
       </select>
     </div>
 
-    <div class="col-12 col-md-3">
+    <div class="col-6 col-md-2">
       <label for="filtro-periodo" class="form-label small fw-semibold mb-1">Período (Ejercicio)</label>
       <select id="filtro-periodo" name="periodo" class="form-select form-select-sm">
         <option value="">Todos</option>
         {% for p in periodos_disponibles %}
-          <option value="{{ p }}" {% if filtro_periodo|stringformat:"s" == p|stringformat:"s" %}selected{% endif %}>{{ p }}</option>
+          <option value="{{ p }}" {% if filtro_periodo == p|stringformat:"s" %}selected{% endif %}>{{ p }}</option>
         {% endfor %}
       </select>
     </div>
 
-    <div class="col-12 col-md-3 d-flex gap-2">
+    <div class="col-6 col-md-3 d-flex gap-2">
       <button type="submit" class="btn btn-primary btn-sm flex-grow-1">Filtrar</button>
       <a href="{% url 'grilla' %}" class="btn btn-outline-secondary btn-sm">Limpiar</a>
     </div>
   </div>
 </form>
 
-<!-- Grilla -->
-<div class="table-responsive shadow-sm">
+<!-- Grilla: scroll propio, encabezado fijo, Instrumento fijo a la izquierda y Acciones a la derecha -->
+<div class="table-responsive tabla-scroll shadow-sm" tabindex="0" aria-label="Tabla de calificaciones, se desplaza horizontal y verticalmente">
   <table class="table table-striped table-hover align-middle tabla-nuam mb-0">
     <caption class="visually-hidden">Calificaciones tributarias</caption>
     <thead>
       <tr>
+        <th scope="col" class="col-fija-izq">Instrumento</th>
         <th scope="col">Ejercicio</th>
-        <th scope="col">Corredora</th>
         <th scope="col">Mercado</th>
+        <th scope="col">Corredora</th>
         <th scope="col">Origen</th>
-        <th scope="col">Instrumento</th>
+        <th scope="col">Secuencia</th>
+        <th scope="col">Tipo soc.</th>
+        <th scope="col">ISFUT</th>
         <th scope="col">Fecha pago</th>
         <th scope="col">Descripción</th>
         <th scope="col">Fuente</th>
         {% for col in columnas_factores %}
           <th scope="col" class="text-end">F{{ col }}</th>
         {% endfor %}
-        <th scope="col" class="text-end">Acciones</th>
+        <th scope="col" class="text-end col-fija-der">Acciones</th>
       </tr>
     </thead>
     <tbody>
       {% for fila in filas %}
         {% with c=fila.obj %}
         <tr>
+          <td class="fw-semibold col-fija-izq">{{ c.instrumento }}</td>
           <td>{{ c.ejercicio }}</td>
-          <td>{{ c.corredora.nombre }}</td>
           <td>{{ c.mercado }}</td>
+          <td>{{ c.corredora.nombre }}</td>
           <td>{{ c.get_origen_display }}</td>
-          <td class="fw-semibold">{{ c.instrumento }}</td>
+          <td>{{ c.secuencia_evento|stringformat:"d" }}</td>
+          <td>{{ c.tipo_sociedad }}</td>
+          <td>{% if c.isfut %}Sí{% else %}No{% endif %}</td>
           <td>{{ c.fecha_pago|date:"d/m/Y"|default:"—" }}</td>
-          <td>{{ c.descripcion|default:"—" }}</td>
+          <td class="celda-desc" title="{{ c.descripcion }}">{{ c.descripcion|default:"—" }}</td>
           <td><span class="badge badge-fuente">{{ c.get_fuente_ingreso_display }}</span></td>
 
           {% for valor_f in fila.factores %}
-            <td class="text-end font-monospace small">
-              {% if valor_f is not None %}{{ valor_f|floatformat:8 }}{% else %}0.00000000{% endif %}
-            </td>
+            <td class="text-end font-monospace small">{% if valor_f is not None %}{{ valor_f|stringformat:"s" }}{% else %}0.00000000{% endif %}</td>
           {% endfor %}
 
-          <td class="text-end text-nowrap">
-            {% if puede_modificar or puede_eliminar %}
-              {% if puede_modificar %}
-                <button type="button" class="btn btn-sm btn-outline-primary" disabled title="Disponible en siguiente paso">Editar</button>
-              {% endif %}
-              {% if puede_eliminar %}
-                <button type="button" class="btn btn-sm btn-outline-danger" disabled title="Disponible en siguiente paso">Eliminar</button>
-              {% endif %}
-            {% else %}
-              <a href="{% url 'detalle' c.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>
+          <td class="text-end text-nowrap col-fija-der">
+            <a href="{% url 'detalle' c.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>
+            {% if fila.editable and puede_modificar %}
+              <a href="{% url 'editar' c.pk %}" class="btn btn-sm btn-outline-primary">Editar</a>
+            {% endif %}
+            {% if fila.editable and puede_eliminar %}
+              <a href="{% url 'eliminar' c.pk %}" class="btn btn-sm btn-outline-danger">Eliminar</a>
             {% endif %}
           </td>
         </tr>
         {% endwith %}
       {% empty %}
         <tr>
-          <td colspan="39" class="text-center py-4 fw-semibold">«sin registros»</td>
+          <td colspan="43" class="text-center py-4 fw-semibold">
+            {% if hay_filtros %}No se encontraron registros para los filtros seleccionados.{% else %}No hay calificaciones registradas.{% endif %}
+          </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+{% if total %}
+<nav class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3" aria-label="Paginación de calificaciones">
+  <span class="small text-muted">
+    Mostrando {{ pagina.start_index }}–{{ pagina.end_index }} de {{ total }} calificaciones
+  </span>
+  {% if pagina.paginator.num_pages > 1 %}
+  <ul class="pagination pagination-sm mb-0">
+    {% if pagina.has_previous %}
+      <li class="page-item"><a class="page-link" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page=1">«</a></li>
+      <li class="page-item"><a class="page-link" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ pagina.previous_page_number }}">Anterior</a></li>
+    {% endif %}
+    <li class="page-item active" aria-current="page"><span class="page-link">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span></li>
+    {% if pagina.has_next %}
+      <li class="page-item"><a class="page-link" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ pagina.next_page_number }}">Siguiente</a></li>
+      <li class="page-item"><a class="page-link" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ pagina.paginator.num_pages }}">»</a></li>
+    {% endif %}
+  </ul>
+  {% endif %}
+</nav>
+{% endif %}
 {% endblock %}

@@ -31,8 +31,10 @@ BITACORA = 'consultar_bitacora'
 ADMINISTRAR_USUARIOS = 'administrar_usuarios'
 
 PERMISOS_POR_ROL = {
-    Usuario.ROL_OPERADOR: frozenset({CONSULTAR, INGRESAR, EDITAR_FACTORES, CARGA_MASIVA}),
-    Usuario.ROL_ADMIN: frozenset({CONSULTAR, MODIFICAR, ELIMINAR, BITACORA, ADMINISTRAR_USUARIOS}),
+    # HDU 05: el corredor modifica y elimina lo suyo (el alcance por corredora lo da cuentas/alcance.py).
+    Usuario.ROL_OPERADOR: frozenset({CONSULTAR, INGRESAR, EDITAR_FACTORES, MODIFICAR, ELIMINAR, CARGA_MASIVA}),
+    # El administrador controla accesos y trazabilidad; no modifica calificaciones.
+    Usuario.ROL_ADMIN: frozenset({CONSULTAR, BITACORA, ADMINISTRAR_USUARIOS}),
 }
 
 
