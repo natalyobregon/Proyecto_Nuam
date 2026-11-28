@@ -3,13 +3,14 @@
 Muestra quién hizo qué, cuándo, desde qué IP, en qué corredora y qué cambió (antes/después).
 La bitácora es append-only: aquí solo se consulta; no hay formularios de edición ni borrado.
 """
-from datetime import date
+from datetime import date, datetime, time, timedelta
 
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, render
 from django.utils.http import urlencode
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
+from django.utils import timezone 
 
 from cuentas.permisos import BITACORA, permiso_requerido
 
@@ -31,6 +32,14 @@ def _fecha(texto):
     except (TypeError, ValueError):
         return None
 
+
+def _inicio_del_dia(dia):
+    """Medianoche local (America/Santiago) de ese día, como fecha con zona horaria.
+
+    Se filtra por rango de fechas y no con fecha__date, porque __date en MySQL/MariaDB necesita
+    las tablas de zonas horarias cargadas en el servidor y, si faltan, devuelve 0 resultados.
+    """
+    return timezone.make_aware(datetime.combine(dia, time.min))
 
 def etiqueta_campo(clave):
     if clave in ETIQUETAS_CAMPOS:
@@ -79,11 +88,11 @@ def bitacora(request):
         f['corredora'] = ''
     desde, hasta = _fecha(f['desde']), _fecha(f['hasta'])
     if desde:
-        consulta = consulta.filter(fecha__date__gte=desde)
+        consulta = consulta.filter(fecha__gte=_inicio_del_dia(desde))
     else:
         f['desde'] = ''
     if hasta:
-        consulta = consulta.filter(fecha__date__lte=hasta)
+        consulta = consulta.filter(fecha__lt=_inicio_del_dia(hasta + timedelta(days=1)))
     else:
         f['hasta'] = ''
 
