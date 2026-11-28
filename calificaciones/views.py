@@ -1,5 +1,7 @@
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
+from django.utils.http import urlencode
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse
@@ -10,6 +12,7 @@ from django.shortcuts import get_object_or_404 #ESTO ES PARA ELIMINAR UNA CALIFI
 from cuentas.alcance import calificaciones_visibles, es_editable_por, obtener_calificacion
 from cuentas.permisos import (
     ADMINISTRAR_USUARIOS,
+    BITACORA,
     CARGA_MASIVA,
     ELIMINAR,
     INGRESAR,
@@ -31,60 +34,71 @@ from .forms import CalificacionBasicaForm, CargaMasivaForm
 from .models import Calificacion, CargaMasiva, FactorCalificacion, MontoCalificacion
 
 
+POR_PAGINA = 25
+
+
 @never_cache
 @login_required
 def grilla_calificaciones(request):
+    instrumento = (request.GET.get('instrumento') or '').strip()[:30]
     mercado = (request.GET.get('mercado') or '').strip()
     origen = (request.GET.get('origen') or '').strip()
     periodo = (request.GET.get('periodo') or '').strip()
 
+    base_visible = calificaciones_visibles(request.user)
     queryset = (
-        calificaciones_visibles(request.user)
-        .filter(eliminado=False)
+        base_visible
         .select_related('corredora')
         .prefetch_related('factores')
-        .order_by('-ejercicio', 'instrumento', 'secuencia_evento')
+        .order_by('-ejercicio', 'instrumento', 'secuencia_evento', 'pk')
     )
 
+    if instrumento:
+        queryset = queryset.filter(instrumento__icontains=instrumento)
     if mercado:
         queryset = queryset.filter(mercado=mercado)
     if origen:
         queryset = queryset.filter(origen=origen)
-    if periodo:
+    if periodo.isdigit():
         queryset = queryset.filter(ejercicio=periodo)
 
-    base_visible = calificaciones_visibles(request.user).filter(eliminado=False)
-    mercados_disponibles = Calificacion.MERCADOS  # lista controlada
     periodos_disponibles = (
-        base_visible.values_list('ejercicio', flat=True)
-        .distinct()
-        .order_by('-ejercicio')
-    )
+        base_visible.values_list('ejercicio', flat=True).distinct().order_by('-ejercicio'))
 
+    pagina = Paginator(queryset, POR_PAGINA).get_page(request.GET.get('page'))
     columnas_factores = list(range(8, 38))
     filas = []
-    for calif in queryset[:100]:
+    for calif in pagina.object_list:
         mapa_factores = {f.numero_columna: f.valor for f in calif.factores.all()}
-        valores_factores = [mapa_factores.get(col) for col in columnas_factores]
         filas.append({
             'obj': calif,
-            'factores': valores_factores,
+            'factores': [mapa_factores.get(col) for col in columnas_factores],
             'editable': es_editable_por(request.user, calif),
         })
 
+    filtros = {'instrumento': instrumento, 'mercado': mercado, 'origen': origen,
+               'periodo': periodo if periodo.isdigit() else ''}
+    filtros_activos = {k: v for k, v in filtros.items() if v}
+
     contexto = {
         'filas': filas,
+        'pagina': pagina,
+        'total': pagina.paginator.count,
         'columnas_factores': columnas_factores,
+        'filtro_instrumento': instrumento,
         'filtro_mercado': mercado,
         'filtro_origen': origen,
-        'filtro_periodo': periodo,
-        'mercados_disponibles': mercados_disponibles,
+        'filtro_periodo': filtros['periodo'],
+        'hay_filtros': bool(filtros_activos),
+        'querystring': urlencode(filtros_activos),     # para los enlaces de paginación
+        'mercados_disponibles': Calificacion.MERCADOS,  # lista controlada
         'periodos_disponibles': periodos_disponibles,
         'origenes_disponibles': Calificacion.ORIGENES,
         'puede_ingresar': tiene_permiso(request.user, INGRESAR),
         'puede_carga_masiva': tiene_permiso(request.user, CARGA_MASIVA),
         'puede_modificar': tiene_permiso(request.user, MODIFICAR),
         'puede_eliminar': tiene_permiso(request.user, ELIMINAR),
+        'puede_bitacora': tiene_permiso(request.user, BITACORA),
         'puede_admin_usuarios': tiene_permiso(request.user, ADMINISTRAR_USUARIOS),
     }
     return render(request, 'calificaciones/grilla.html', contexto)

@@ -88,6 +88,19 @@ body.pagina-login main {
 
 /* Tablas */
 .tabla-nuam thead th { background: var(--nuam-superficie); color: var(--nuam-texto); white-space: nowrap; }
+.tabla-nuam td { white-space: nowrap; }
+
+/* Grilla de calificaciones: scroll propio, encabezado fijo y columnas fijas (Instrumento / Acciones) */
+.tabla-scroll { max-height: 68vh; overflow: auto; }
+.tabla-scroll .tabla-nuam { font-size: .85rem; }
+.tabla-scroll .tabla-nuam thead th { position: sticky; top: 0; z-index: 3; }
+.tabla-scroll .col-fija-izq,
+.tabla-scroll .col-fija-der { position: sticky; z-index: 2; background-color: #fff; }
+.tabla-scroll .col-fija-izq { left: 0; box-shadow: 1px 0 0 rgba(0, 0, 0, .15); }
+.tabla-scroll .col-fija-der { right: 0; box-shadow: -1px 0 0 rgba(0, 0, 0, .15); }
+.tabla-scroll thead .col-fija-izq,
+.tabla-scroll thead .col-fija-der { z-index: 4; background-color: var(--nuam-superficie); }
+.tabla-nuam .celda-desc { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; }
 .badge-fuente { background: var(--nuam-superficie); color: var(--nuam-institucional); font-weight: 600; }
 
 .caja-centrada { max-width: 32rem; }

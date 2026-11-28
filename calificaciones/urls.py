@@ -1,9 +1,11 @@
 from django.urls import path #esta pagina es para que el sistema sepa que urls estan disponibles en la app calificaciones
-from . import views
+from . import views, views_bitacora
 
 urlpatterns = [
     path('', views.grilla_calificaciones, name='grilla'),
     path('ingresar/', views.ingresar_calificacion, name='ingresar'),
+    path('bitacora/', views_bitacora.bitacora, name='bitacora'),
+    path('bitacora/<int:pk>/', views_bitacora.bitacora_detalle, name='bitacora_detalle'),
     path('carga-masiva/', views.carga_masiva, name='carga_masiva'),
     path('carga-masiva/plantilla/', views.carga_plantilla, name='carga_plantilla'),
     path('carga-masiva/<int:pk>/', views.carga_detalle, name='carga_detalle'),

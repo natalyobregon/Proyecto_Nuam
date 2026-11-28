@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block titulo %}Registro de bitácora {{ r.pk }}{% endblock %}
+
+{% block contenido %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 fw-bold mb-0">Registro de bitácora N.° {{ r.pk }}</h1>
+  <a href="{% url 'bitacora' %}" class="btn btn-outline-secondary btn-sm">Volver a la bitácora</a>
+</div>
+
+<div class="card card-body shadow-sm mb-3">
+  <div class="row g-2 small">
+    <div class="col-6 col-md-3"><strong>Fecha y hora:</strong> {{ r.fecha|date:"d/m/Y H:i:s" }}</div>
+    <div class="col-6 col-md-3"><strong>Usuario:</strong> {{ r.usuario.username|default:"—" }}</div>
+    <div class="col-6 col-md-3"><strong>Acción:</strong> {{ r.get_accion_display }}</div>
+    <div class="col-6 col-md-3"><strong>IP:</strong> <span class="font-monospace">{{ r.ip|default:"—" }}</span></div>
+    <div class="col-6 col-md-3"><strong>Corredora:</strong> {{ detalle.corredora|default:"—" }}</div>
+    <div class="col-6 col-md-3"><strong>Instrumento:</strong> {{ detalle.instrumento|default:"—" }}</div>
+    <div class="col-6 col-md-3"><strong>Ejercicio:</strong> {{ detalle.ejercicio|default:"—" }}</div>
+    <div class="col-6 col-md-3"><strong>Calificación N.°:</strong> {{ r.id_calificacion|default:"—" }}</div>
+    {% if resumen %}<div class="col-12"><strong>Resumen:</strong> {{ resumen }}</div>{% endif %}
+  </div>
+</div>
+
+{% if cambios %}
+  <h2 class="h6 fw-bold mb-2">Cambios (antes y después)</h2>
+  <div class="table-responsive shadow-sm mb-3">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <thead><tr><th scope="col">Campo</th><th scope="col">Antes</th><th scope="col">Después</th></tr></thead>
+      <tbody>
+        {% for c in cambios %}
+          <tr>
+            <td>{{ c.campo }}</td>
+            <td class="font-monospace">{{ c.antes|default_if_none:"—"|stringformat:"s" }}</td>
+            <td class="font-monospace">{{ c.despues|default_if_none:"—"|stringformat:"s" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+{% if instantanea %}
+  <h2 class="h6 fw-bold mb-2">{{ instantanea_titulo }}</h2>
+  <div class="table-responsive shadow-sm mb-3">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <thead><tr><th scope="col">Campo</th><th scope="col">Valor</th></tr></thead>
+      <tbody>
+        {% for i in instantanea %}
+          <tr><td>{{ i.campo }}</td><td class="font-monospace">{{ i.valor|default_if_none:"—"|stringformat:"s" }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+{% if otros %}
+  <h2 class="h6 fw-bold mb-2">Otros datos</h2>
+  <div class="table-responsive shadow-sm mb-3">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <tbody>
+        {% for o in otros %}
+          <tr><th scope="row" class="fw-semibold">{{ o.clave }}</th><td class="font-monospace text-break">{{ o.valor|stringformat:"s" }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}  

@@ -417,6 +417,7 @@ from pathlib import Path
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from django.utils import timezone
 
 from calificaciones import cargas
 from calificaciones.calculos import calcular_factores_desde_montos as calc
@@ -835,3 +836,175 @@ class Paso5CargaMasivaTests(TestCase):
         carga.refresh_from_db()
         self.assertEqual(carga.estado, 'fallida')
         self.assertFalse(Calificacion.objects.exists())
+
+
+class Paso6GrillaTests(TestCase):
+    """Mantenedor completo: filtro por instrumento, paginación, texto sin resultados, punto decimal."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.corr = Corredora.objects.create(nombre='A', rut='76.111.111-1')
+        cls.op = Usuario.objects.create_user('op', password='x', rol=Usuario.ROL_OPERADOR, corredora=cls.corr)
+        cls.admin = Usuario.objects.create_user('adm', password='x', rol=Usuario.ROL_ADMIN, is_staff=True)
+        for i in range(30):
+            cal = Calificacion.objects.create(
+                corredora=cls.corr, ejercicio=2025 if i % 2 else 2024, mercado='ACN' if i < 20 else 'CFI',
+                instrumento=f'COPEC-{i:02d}' if i < 28 else f'SQM-{i}', secuencia_evento=10001 + i)
+            FactorCalificacion.objects.create(calificacion=cal, numero_columna=8, valor=D('0.1'))
+
+    def setUp(self):
+        self.client.force_login(self.op)
+
+    def get(self, **params):
+        return self.client.get(reverse('grilla'), params)
+
+    def test_pagina_de_25_y_segunda_pagina_con_el_resto(self):
+        r = self.get()
+        self.assertEqual(len(r.context['filas']), 25)
+        self.assertContains(r, 'Mostrando 1–25 de 30')
+        r2 = self.get(page=2)
+        self.assertEqual(len(r2.context['filas']), 5)
+        self.assertContains(r2, 'Mostrando 26–30 de 30')
+
+    def test_pagina_invalida_no_rompe(self):
+        for malo in ('abc', '0', '-3', '999'):
+            self.assertEqual(self.get(page=malo).status_code, 200)
+
+    def test_filtro_por_instrumento_parcial_sin_distinguir_mayusculas(self):
+        r = self.get(instrumento='sqm')
+        self.assertEqual({f['obj'].instrumento for f in r.context['filas']}, {'SQM-28', 'SQM-29'})
+        self.assertContains(r, 'Mostrando 1–2 de 2')
+
+    def test_filtros_combinados_y_se_conservan_al_paginar(self):
+        r = self.get(instrumento='COPEC', mercado='ACN', periodo='2025')
+        self.assertTrue(all(f['obj'].mercado == 'ACN' and f['obj'].ejercicio == 2025 for f in r.context['filas']))
+        self.assertEqual(r.context['total'], 10)
+        r = self.get(instrumento='COPEC')
+        self.assertIn('instrumento=COPEC', r.context['querystring'])
+        self.assertContains(r, 'instrumento=COPEC&amp;page=2')
+
+    def test_sin_resultados_con_filtros_muestra_el_texto_pedido(self):
+        r = self.get(instrumento='NOEXISTE')
+        self.assertContains(r, 'No se encontraron registros para los filtros seleccionados')
+        self.assertEqual(r.context['filas'], [])
+
+    def test_sin_datos_y_sin_filtros_muestra_otro_texto(self):
+        Calificacion.objects.all().delete()
+        r = self.get()
+        self.assertContains(r, 'No hay calificaciones registradas')
+        self.assertNotContains(r, 'No se encontraron registros')
+
+    def test_periodo_no_numerico_se_ignora(self):
+        self.assertEqual(self.get(periodo="2025' OR 1=1").context['total'], 30)
+
+    def test_los_decimales_se_muestran_con_punto(self):
+        html = self.get().content.decode()
+        self.assertIn('0.10000000', html)
+        self.assertNotIn('0,10000000', html)
+        cal = Calificacion.objects.first()
+        MontoCalificacion.objects.create(calificacion=cal, numero_columna=8, valor=D('1234.50'))
+        detalle = self.client.get(reverse('detalle', args=[cal.pk])).content.decode()
+        self.assertIn('1234.50', detalle)
+        self.assertIn('0.10000000', detalle)
+
+    def test_la_secuencia_se_muestra_sin_separador_de_miles(self):
+        self.assertContains(self.get(), '>10001<')
+
+    def test_boton_bitacora_solo_para_el_administrador(self):
+        self.assertNotContains(self.get(), reverse('bitacora'))
+        self.client.force_login(self.admin)
+        self.assertContains(self.get(), reverse('bitacora'))
+
+
+class Paso6BitacoraTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.corr_a = Corredora.objects.create(nombre='A', rut='76.111.111-1')
+        cls.corr_b = Corredora.objects.create(nombre='B', rut='76.222.222-2')
+        cls.op_a = Usuario.objects.create_user('op_a', password='x', rol=Usuario.ROL_OPERADOR, corredora=cls.corr_a)
+        cls.op_b = Usuario.objects.create_user('op_b', password='x', rol=Usuario.ROL_OPERADOR, corredora=cls.corr_b)
+        cls.admin = Usuario.objects.create_user('adm', password='x', rol=Usuario.ROL_ADMIN, is_staff=True)
+        cls.mod = RegistroAuditoria.objects.create(
+            usuario=cls.op_a, accion='modificar', id_calificacion=7, ip='10.0.0.5',
+            detalle={'corredora_id': cls.corr_a.pk, 'corredora': 'A', 'instrumento': 'COPEC', 'ejercicio': 2025,
+                     'via': 'manual',
+                     'cambios': {'descripcion': {'antes': 'vieja', 'despues': 'nueva'},
+                                 'factor_8': {'antes': '0.50000000', 'despues': '0.40000000'}}})
+        cls.eli = RegistroAuditoria.objects.create(
+            usuario=cls.op_b, accion='eliminar', id_calificacion=9, ip='10.0.0.6',
+            detalle={'corredora_id': cls.corr_b.pk, 'corredora': 'B', 'instrumento': 'SQM-B', 'ejercicio': 2024,
+                     'antes': {'mercado': 'ACN', 'instrumento': 'SQM-B', 'isfut': False}})
+        cls.login = RegistroAuditoria.objects.create(usuario=cls.admin, accion='login', ip='127.0.0.1')
+
+    def setUp(self):
+        self.client.force_login(self.admin)
+
+    def lista(self, **params):
+        return self.client.get(reverse('bitacora'), params)
+
+    def test_solo_el_administrador_ve_la_bitacora(self):
+        self.assertEqual(self.lista().status_code, 200)
+        for operador in (self.op_a, self.op_b):
+            self.client.force_login(operador)
+            self.assertEqual(self.lista().status_code, 403)
+            self.assertEqual(self.client.get(reverse('bitacora_detalle', args=[self.mod.pk])).status_code, 403)
+        self.client.logout()
+        self.assertEqual(self.lista().status_code, 302)                  # sin sesión -> login
+
+    def test_es_de_solo_lectura(self):
+        self.assertEqual(self.client.post(reverse('bitacora'), {}).status_code, 405)
+        self.assertEqual(self.client.post(reverse('bitacora_detalle', args=[self.mod.pk]), {}).status_code, 405)
+        self.assertEqual(RegistroAuditoria.objects.filter(pk=self.mod.pk).count(), 1)
+
+    def test_lista_los_registros_mas_recientes_primero_con_resumen(self):
+        r = self.lista()
+        ids = [f['obj'].pk for f in r.context['filas']]
+        self.assertEqual(ids, sorted(ids, reverse=True))
+        resumenes = {f['obj'].pk: f['resumen'] for f in r.context['filas']}
+        self.assertEqual(resumenes[self.mod.pk], '2 campos modificados')
+        self.assertEqual(resumenes[self.eli.pk], 'Eliminación lógica')
+
+    def test_filtros_por_usuario_accion_corredora_y_fecha(self):
+        ids = lambda **p: {f['obj'].pk for f in self.lista(**p).context['filas']}
+        self.assertEqual(ids(usuario='op_a'), {self.mod.pk})
+        self.assertEqual(ids(accion='eliminar'), {self.eli.pk})
+        self.assertEqual(ids(corredora=self.corr_b.pk), {self.eli.pk})
+        hoy = timezone.localdate().isoformat()
+        self.assertEqual(len(ids(desde=hoy, hasta=hoy)), 3)
+        self.assertEqual(ids(desde='2999-01-01'), set())
+        self.assertEqual(len(ids(accion='inventada', corredora='x', desde='basura')), 3)   # filtros inválidos se ignoran
+
+    def test_sin_resultados_muestra_el_texto(self):
+        self.assertContains(self.lista(usuario='nadie'), 'No se encontraron registros para los filtros seleccionados')
+
+    def test_paginacion(self):
+        for i in range(30):
+            RegistroAuditoria.objects.create(usuario=self.admin, accion='login', ip='127.0.0.1')
+        r = self.lista()
+        self.assertEqual(len(r.context['filas']), 25)
+        self.assertContains(r, 'Mostrando 1–25 de 33')
+        self.assertEqual(len(self.lista(page=2).context['filas']), 8)
+
+    def test_detalle_muestra_antes_y_despues(self):
+        r = self.client.get(reverse('bitacora_detalle', args=[self.mod.pk]))
+        self.assertContains(r, 'Descripción')
+        self.assertContains(r, 'vieja')
+        self.assertContains(r, 'nueva')
+        self.assertContains(r, 'Factor columna 8')
+        self.assertContains(r, '10.0.0.5')
+
+    def test_detalle_de_eliminacion_muestra_los_valores_previos(self):
+        r = self.client.get(reverse('bitacora_detalle', args=[self.eli.pk]))
+        self.assertContains(r, 'Valores antes de eliminar')
+        self.assertContains(r, 'SQM-B')
+
+    def test_detalle_de_registro_sin_detalle_y_de_id_inexistente(self):
+        self.assertEqual(self.client.get(reverse('bitacora_detalle', args=[self.login.pk])).status_code, 200)
+        self.assertEqual(self.client.get(reverse('bitacora_detalle', args=[999999])).status_code, 404)
+
+    def test_el_html_de_la_bitacora_escapa_el_contenido(self):
+        RegistroAuditoria.objects.create(usuario=self.admin, accion='otro', ip='127.0.0.1',
+                                         detalle={'evento': '<script>alert(1)</script>'})
+        html = self.lista().content.decode() + self.client.get(
+            reverse('bitacora_detalle', args=[RegistroAuditoria.objects.latest('id_registro').pk])).content.decode()
+        self.assertNotIn('<script>alert(1)</script>', html)
