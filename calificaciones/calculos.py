@@ -43,10 +43,25 @@ def calcular_factores_desde_montos(montos_por_col):
     divisor = suma_distribucion(montos_por_col)
     if divisor <= CERO:
         raise ValueError('La suma de los montos de las columnas 8 a 19 es 0: no se pueden calcular los factores.')
-    return {
-        col: redondear_8_decimales(montos_por_col.get(col, CERO) / divisor)
-        for col in COLUMNAS
-    }
+    exactos = {col: montos_por_col.get(col, CERO) / divisor for col in COLUMNAS}
+    factores = {col: redondear_8_decimales(valor) for col, valor in exactos.items()}
+    return _ajustar_redondeo_8_a_19(factores, exactos)
+
+
+def _ajustar_redondeo_8_a_19(factores, exactos):
+    """Si redondear cada factor hace que la suma de 8 a 19 pase de 1 (p. ej. 1,00000001), resta
+    1e-8 a los factores que más se «subieron» al redondear hasta que la suma sea <= 1.
+
+    La suma exacta de los factores 8 a 19 es 1; el redondeo individual puede dejarla 1e-8 más arriba
+    y la regla del HDU (suma <= 1) no admite tolerancia. Solo se corrige lo calculado a partir de
+    montos; un factor ingresado directamente nunca se ajusta, se rechaza.
+    """
+    exceso = suma_distribucion(factores) - UNO
+    while exceso > CERO:
+        col = max(COLUMNAS_DISTRIBUCION, key=lambda c: factores[c] - exactos[c])
+        factores[col] -= OCHO_DECIMALES
+        exceso -= OCHO_DECIMALES
+    return factores
 
 
 def resolver_factores_editables(post_data, factores_calculados):

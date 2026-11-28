@@ -44,8 +44,10 @@ class Usuario(AbstractUser):
 
 
 class CargaMasiva(models.Model):
-    ESTADOS = [('procesando', 'Procesando'), ('completada', 'Completada'),
-               ('con_errores', 'Con errores'), ('fallida', 'Fallida')]
+    ESTADOS = [('pendiente', 'Pendiente de confirmar'), ('procesando', 'Procesando'),
+               ('completada', 'Completada'), ('parcial', 'Completada con errores'),
+               ('con_errores', 'Con errores (nada cargado)'), ('fallida', 'Fallida')]
+    TIPOS = [('factores', 'Factores'), ('montos', 'Montos'), ('mixto', 'Mixto (montos y factores)')]
 
     id_carga = models.AutoField(primary_key=True)
     corredora = models.ForeignKey(Corredora, on_delete=models.PROTECT, related_name='cargas')
@@ -56,6 +58,10 @@ class CargaMasiva(models.Model):
     registros_ok = models.PositiveIntegerField(default=0)
     registros_error = models.PositiveIntegerField(default=0)
     estado = models.CharField(max_length=20, choices=ESTADOS, default='procesando')
+    tipo = models.CharField(max_length=10, choices=TIPOS, default='factores')
+    # Archivo original conservado en disco (ruta relativa a CARGAS_ROOT) + huella para verificar integridad.
+    archivo_ruta = models.CharField(max_length=255, blank=True)
+    hash_sha256 = models.CharField(max_length=64, blank=True)
     # Elemento "no estructurado": detalle de errores por fila (JSON)
     detalle_errores = models.JSONField(null=True, blank=True)
 
@@ -71,7 +77,7 @@ class Calificacion(models.Model):
     FUENTES = [('manual', 'Manual'), ('archivo', 'Archivo'), ('sistema', 'Sistema')]
     # Lista controlada de mercados (códigos de 3 letras del CSV). Confirmar lista final con el docente.
     MERCADOS = [('ACN', 'ACN - Acciones'), ('CFI', 'CFI - Cuotas de fondos de inversión'),
-                ('FMU', 'FMU - Fondos mutuos')]
+                ('FM', 'FM - Fondos mutuos')]
     TIPOS_SOCIEDAD = [('A', 'A - Abierta'), ('C', 'C - Cerrada')]
 
     id_calificacion = models.AutoField(primary_key=True)

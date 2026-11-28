@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block titulo %}Carga masiva{% endblock %}
+
+{% block contenido %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 fw-bold mb-0">Carga masiva de calificaciones</h1>
+  <a href="{% url 'grilla' %}" class="btn btn-outline-secondary btn-sm">Volver a la grilla</a>
+</div>
+
+{% if messages %}
+  {% for msg in messages %}
+    <div class="alert alert-{% if msg.tags == 'error' %}danger{% else %}{{ msg.tags }}{% endif %}" role="alert">{{ msg }}</div>
+  {% endfor %}
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <form method="post" enctype="multipart/form-data" novalidate class="card card-body shadow-sm">
+      {% csrf_token %}
+      <h2 class="h6 fw-bold mb-3">1. Seleccione el archivo</h2>
+
+      <div class="mb-3">
+        <label for="{{ form.archivo.id_for_label }}" class="form-label fw-semibold">Archivo CSV *</label>
+        {{ form.archivo }}
+        {% for err in form.archivo.errors %}<div class="invalid-feedback d-block">{{ err }}</div>{% endfor %}
+        <div class="form-text">Máximo {{ max_mb }} MB y {{ max_filas }} filas. Primero verá una vista previa; nada se guarda hasta que confirme.</div>
+      </div>
+
+      <div class="d-flex justify-content-end gap-2">
+        <a href="{% url 'grilla' %}" class="btn btn-outline-secondary">Cancelar</a>
+        <button type="submit" class="btn btn-primary">Validar archivo</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="card card-body shadow-sm small">
+      <h2 class="h6 fw-bold">Formato del archivo</h2>
+      <p class="mb-2">Una fila por calificación, 39 columnas separadas por «;» (coma decimal), con encabezado:</p>
+      <p class="mb-2 font-monospace">tipo_carga; ejercicio; mercado; instrumento; fecha_pago (DD-MM-AAAA); secuencia; numero_dividendo; valor_historico; descripcion; c8 … c37</p>
+      <ul class="mb-2">
+        <li><strong>tipo_carga:</strong> MONTOS (el sistema calcula los factores) o FACTORES (se usan tal cual). Un mismo archivo puede mezclar ambos.</li>
+        <li>Mercado: ACN, CFI o FM. Secuencia mayor a 10.000.</li>
+        <li>Sin celdas vacías en c8 a c37: si no aplica, escriba 0. Sin separador de miles.</li>
+        <li>Si existe una calificación con la misma llave (mercado, instrumento, ejercicio y secuencia) se actualiza.</li>
+        <li>Si una fila tiene errores no se carga ninguna: se informa fila y columna.</li>
+      </ul>
+      <a href="{% url 'carga_plantilla' %}" class="btn btn-sm btn-outline-secondary align-self-start">Descargar plantilla</a>
+    </div>
+  </div>
+</div>
+
+<h2 class="h6 fw-bold mt-4 mb-2">Últimas cargas de su corredora</h2>
+<div class="table-responsive shadow-sm">
+  <table class="table table-sm table-striped align-middle mb-0">
+    <thead>
+      <tr>
+        <th scope="col">Fecha</th><th scope="col">Archivo</th><th scope="col">Tipo</th>
+        <th scope="col" class="text-end">Filas</th><th scope="col" class="text-end">Con error</th>
+        <th scope="col">Estado</th><th scope="col"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in historial %}
+        <tr>
+          <td>{{ c.fecha_carga|date:"d/m/Y H:i" }}</td>
+          <td>{{ c.nombre_archivo }}</td>
+          <td>{{ c.get_tipo_display }}</td>
+          <td class="text-end">{{ c.total_registros }}</td>
+          <td class="text-end">{{ c.registros_error }}</td>
+          <td>{{ c.get_estado_display }}</td>
+          <td class="text-end">{% if c.archivo_ruta %}<a href="{% url 'carga_detalle' c.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="text-center py-3">Aún no hay cargas.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -407,3 +407,431 @@ class Paso4ModificarEliminarTests(TestCase):
     def test_operador_no_ve_la_bitacora(self):
         self.client.force_login(self.op_a)
         self.assertNotEqual(self.client.get('/admin/calificaciones/registroauditoria/').status_code, 200)
+
+
+
+import hashlib
+import shutil
+import tempfile
+from pathlib import Path
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
+
+from calificaciones import cargas
+from calificaciones.calculos import calcular_factores_desde_montos as calc
+from calificaciones.models import CargaMasiva, RegistroAuditoria
+
+_TMP_CARGAS = tempfile.mkdtemp(prefix='cargas_test_')
+FIXTURES = Path(__file__).resolve().parent / 'fixtures_csv'
+ENCABEZADO = ';'.join(cargas.ENCABEZADO_BASICO + [f'c{c}' for c in range(8, 38)])
+
+
+def fila_csv(tipo='MONTOS', **cambios):
+    """Fila válida (ejemplo del HDU). Ajustes: tipo=, ejercicio=, mercado=, instrumento=, fecha=,
+    secuencia=, ndiv=, historico=, descripcion=, o c8=..c37=."""
+    base = cargas.plantilla_csv().splitlines()[1 if tipo == 'MONTOS' else 2].split(';')
+    nombres = ['tipo', 'ejercicio', 'mercado', 'instrumento', 'fecha', 'secuencia', 'ndiv', 'historico', 'descripcion']
+    base[0] = tipo
+    for clave, valor in cambios.items():
+        if clave.startswith('c') and clave[1:].isdigit():
+            base[cargas.N_BASICAS + int(clave[1:]) - 8] = str(valor)
+        else:
+            base[nombres.index(clave)] = str(valor)
+    return ';'.join(base)
+
+
+def csv_bytes(*filas, encabezado=True):
+    return ('\n'.join(([ENCABEZADO] if encabezado else []) + list(filas)) + '\n').encode('utf-8')
+
+
+def errores_por_fila(resultado):
+    por = {}
+    for e in resultado['errores']:
+        por.setdefault(e['fila'], set()).add(e['columna'])
+    return por
+
+
+class AjusteRedondeoTests(TestCase):
+    def test_montos_que_redondeados_suman_1_00000001_se_ajustan_a_1(self):
+        # Fila real del archivo del docente (VINA-VALLE, secuencia 10006).
+        montos = {12: D(126616000), 14: D(148849000), 16: D(243806000), 19: D(135466000)}
+        factores = calc(montos)
+        ok, suma = validar_suma_factores_8_a_19(factores)
+        self.assertTrue(ok)
+        self.assertEqual(suma, D('1.00000000'))
+        self.assertEqual(factores[14], D('0.22734166'))     # el que más se había subido al redondear
+
+    def test_el_ajuste_no_toca_el_ejemplo_del_hdu(self):
+        factores = calc(MONTOS_HDU)
+        for col, esperado in FACTORES_HDU.items():
+            self.assertEqual(factores[col], esperado)
+
+    def test_suma_menor_a_1_por_redondeo_no_se_ajusta(self):
+        montos = {8: D(76298000), 11: D(30028000), 15: D(22161000), 17: D(162009000)}   # fila 4 del archivo
+        ok, suma = validar_suma_factores_8_a_19(calc(montos))
+        self.assertTrue(ok)
+        self.assertEqual(suma, D('0.99999999'))
+
+
+class FormatoDocenteTests(TestCase):
+    """Los dos archivos que entregó el profe son el criterio de aceptación de la carga masiva."""
+
+    def validar(self, nombre):
+        return cargas.validar_archivo((FIXTURES / nombre).read_bytes())
+
+    def test_archivo_de_prueba_20_filas_validas_y_13_con_el_error_esperado(self):
+        r = self.validar('carga_masiva_prueba_nuam.csv')
+        self.assertEqual(r['total'], 33)
+        self.assertEqual([f['fila'] for f in r['filas']], list(range(2, 22)))
+        self.assertEqual(errores_por_fila(r), {
+            22: {'descripcion'},                  # =HYPERLINK(...)
+            23: {'secuencia'},                    # 9999
+            24: {'c8..c19'},                      # montos solo fuera de 8 a 19: sin divisor
+            25: {'c9'},                           # monto negativo
+            26: {'c11'},                          # «N/A»
+            27: {'instrumento'},                  # vacío
+            28: {'fecha_pago'},                   # 31-02-2025
+            29: {'mercado'},                      # BONOS
+            30: {'c8..c19'},                      # factores suman 1,05
+            31: {'c9'},                           # 9 decimales
+            32: {'(llave)'},                      # repite la fila 6
+            33: {'(fila)'},                       # 21 columnas
+            34: {'fecha_pago'},                   # 15-13-2025
+        })
+
+    def test_archivo_de_errores_cada_fila_mala_falla_en_su_columna(self):
+        r = self.validar('carga_masiva_errores_nuam.csv')
+        self.assertEqual(r['total'], 38)
+        self.assertEqual(errores_por_fila(r), {
+            6: {'tipo_carga'}, 7: {'ejercicio'}, 8: {'ejercicio'}, 10: {'mercado'},
+            13: {'fecha_pago'}, 14: {'fecha_pago'}, 15: {'fecha_pago'},
+            16: {'secuencia'}, 17: {'secuencia'}, 18: {'secuencia'},
+            20: {'numero_dividendo'}, 21: {'valor_historico'}, 22: {'valor_historico'},
+            24: {'descripcion'}, 25: {'descripcion'}, 26: {'descripcion'},
+            28: {'c11'}, 29: {'c15'}, 30: {'c8..c19'},
+            32: {'c20'}, 33: {'c9'}, 34: {'c8..c19'}, 35: {'c9'},
+            37: {'(llave)'}, 38: {'(fila)'}, 39: {'(fila)'},
+        })
+
+    def test_archivo_de_errores_filas_que_si_se_aceptan(self):
+        """Decisiones de formato (a confirmar con el docente): tipo y mercado sin distinguir
+        mayúsculas, FM como mercado, dividendo 0, descripción vacía, decimales con coma o punto."""
+        r = self.validar('carga_masiva_errores_nuam.csv')
+        self.assertEqual([f['fila'] for f in r['filas']], [2, 3, 4, 5, 9, 11, 12, 19, 23, 27, 31, 36])
+
+    def test_los_dos_archivos_traen_bom_y_crlf_y_se_leen(self):
+        for nombre in ('carga_masiva_prueba_nuam.csv', 'carga_masiva_errores_nuam.csv'):
+            crudo = (FIXTURES / nombre).read_bytes()
+            self.assertTrue(crudo.startswith(b'\xef\xbb\xbf'))
+            self.assertIn(b'\r\n', crudo)
+
+    def test_el_ejemplo_del_hdu_del_archivo_de_prueba_da_los_factores_del_hdu(self):
+        r = self.validar('carga_masiva_prueba_nuam.csv')
+        hdu = next(f for f in r['filas'] if f['instrumento'] == 'EMPRESA-HDU')
+        for col, esperado in FACTORES_HDU.items():
+            self.assertEqual(hdu['factores'][col], esperado)
+        self.assertEqual(hdu['valor_historico'], D('48.50'))
+        self.assertEqual(hdu['numero_dividendo'], 290)
+
+    def test_descripcion_con_tildes_y_enie_se_conserva(self):
+        r = self.validar('carga_masiva_prueba_nuam.csv')
+        fila = next(f for f in r['filas'] if f['secuencia_evento'] == 10018)
+        self.assertIn('tildes y ñ', fila['descripcion'])
+        self.assertIn('–', fila['descripcion'])
+
+
+@override_settings(CARGAS_ROOT=_TMP_CARGAS)
+class Paso5CargaMasivaTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.corr_a = Corredora.objects.create(nombre='A', rut='76.111.111-1')
+        cls.corr_b = Corredora.objects.create(nombre='B', rut='76.222.222-2')
+        cls.op_a = Usuario.objects.create_user('op_a', password='x', rol=Usuario.ROL_OPERADOR,
+                                               corredora=cls.corr_a)
+        cls.op_b = Usuario.objects.create_user('op_b', password='x', rol=Usuario.ROL_OPERADOR,
+                                               corredora=cls.corr_b)
+        cls.admin = Usuario.objects.create_user('adm', password='x', rol=Usuario.ROL_ADMIN, is_staff=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(_TMP_CARGAS, ignore_errors=True)
+
+    def setUp(self):
+        self.client.force_login(self.op_a)
+
+    def subir_bytes(self, contenido, nombre='carga.csv'):
+        return self.client.post(reverse('carga_masiva'), {
+            'archivo': SimpleUploadedFile(nombre, contenido, content_type='text/csv')})
+
+    def subir(self, *filas, nombre='carga.csv'):
+        contenido = csv_bytes(*filas)
+        return self.subir_bytes(contenido, nombre), contenido
+
+    def cargar_y_confirmar(self, *filas):
+        self.subir(*filas)
+        carga = CargaMasiva.objects.latest('id_carga')
+        self.client.post(reverse('carga_confirmar', args=[carga.pk]))
+        carga.refresh_from_db()
+        return carga
+
+    # ---- flujo feliz
+    def test_subir_valido_deja_pendiente_y_no_graba_hasta_confirmar(self):
+        r, contenido = self.subir(fila_csv())
+        carga = CargaMasiva.objects.get()
+        self.assertRedirects(r, reverse('carga_detalle', args=[carga.pk]))
+        self.assertEqual(carga.estado, 'pendiente')
+        self.assertEqual(carga.tipo, 'montos')
+        self.assertEqual(carga.hash_sha256, hashlib.sha256(contenido).hexdigest())
+        self.assertFalse(Calificacion.objects.exists())
+        self.assertContains(self.client.get(reverse('carga_detalle', args=[carga.pk])), 'Confirmar carga')
+
+    def test_confirmar_crea_con_fuente_archivo_origen_local_y_factores_del_hdu(self):
+        carga = self.cargar_y_confirmar(fila_csv())
+        self.assertEqual(carga.estado, 'completada')
+        cal = Calificacion.objects.get()
+        self.assertEqual((cal.fuente_ingreso, cal.origen, cal.corredora), ('archivo', 'local_corredora', self.corr_a))
+        self.assertEqual(cal.carga, carga)
+        self.assertEqual(cal.factores.count(), 30)
+        self.assertEqual(cal.montos.count(), 30)
+        self.assertEqual(cal.factores.get(numero_columna=8).valor, D('0.52277431'))
+        self.assertEqual(cal.numero_dividendo, 290)
+        self.assertEqual(cal.valor_historico, D('48.50'))
+        self.assertEqual(cal.descripcion, 'Ejemplo del HDU (montos)')
+
+    def test_un_archivo_puede_mezclar_montos_y_factores(self):
+        carga = self.cargar_y_confirmar(fila_csv('MONTOS'), fila_csv('FACTORES'))
+        self.assertEqual(carga.tipo, 'mixto')
+        self.assertEqual(Calificacion.objects.count(), 2)
+        directa = Calificacion.objects.get(instrumento='EMPRESA-HDU-F')
+        self.assertEqual(directa.factores.get(numero_columna=8).valor, D('0.52277431'))
+        self.assertTrue(all(m.valor == 0 for m in directa.montos.all()))    # no se informaron montos
+
+    def test_el_csv_original_se_guarda_y_verifica_su_huella(self):
+        r, contenido = self.subir(fila_csv())
+        self.assertEqual(cargas.leer_original(CargaMasiva.objects.get()), contenido)
+
+    def test_la_plantilla_descargable_es_cargable(self):
+        plantilla = self.client.get(reverse('carga_plantilla')).content
+        r = cargas.validar_archivo(plantilla)
+        self.assertEqual(r['errores'], [])
+        self.assertEqual(len(r['filas']), 2)
+
+    def test_sube_y_confirma_el_archivo_de_prueba_del_docente_no_carga_nada_por_sus_errores(self):
+        self.subir_bytes((FIXTURES / 'carga_masiva_prueba_nuam.csv').read_bytes(), 'prueba.csv')
+        carga = CargaMasiva.objects.get()
+        self.assertEqual(carga.estado, 'con_errores')
+        self.assertEqual((carga.total_registros, carga.registros_ok, carga.registros_error), (33, 20, 13))
+        self.client.post(reverse('carga_confirmar', args=[carga.pk]))
+        self.assertFalse(Calificacion.objects.exists())                  # todo o nada
+
+    def test_las_20_filas_buenas_del_archivo_de_prueba_se_cargan_si_se_corrigen_las_malas(self):
+        lineas = (FIXTURES / 'carga_masiva_prueba_nuam.csv').read_text(encoding='utf-8-sig').splitlines()
+        carga = self.cargar_y_confirmar(*lineas[1:21])
+        self.assertEqual(carga.estado, 'completada')
+        self.assertEqual(Calificacion.objects.count(), 20)
+        self.assertEqual(carga.detalle_errores, {'creadas': 20, 'actualizadas': 0})
+        for cal in Calificacion.objects.filter(factores__numero_columna__lte=19).distinct():
+            suma = sum(f.valor for f in cal.factores.filter(numero_columna__lte=19))
+            self.assertLessEqual(suma, 1, cal.instrumento)
+
+    def test_modo_solo_validas_con_el_archivo_de_prueba_carga_20_y_reporta_13(self):
+        self.subir_bytes((FIXTURES / 'carga_masiva_prueba_nuam.csv').read_bytes(), 'prueba.csv')
+        carga = CargaMasiva.objects.get()
+        self.assertEqual(carga.estado, 'con_errores')
+        self.assertContains(self.client.get(reverse('carga_detalle', args=[carga.pk])), 'Cargar solo las 20 filas válidas')
+        self.client.post(reverse('carga_confirmar', args=[carga.pk]), {'modo': 'validas'})
+        carga.refresh_from_db()
+        self.assertEqual(carga.estado, 'parcial')
+        self.assertEqual((carga.total_registros, carga.registros_ok, carga.registros_error), (33, 20, 13))
+        self.assertEqual(Calificacion.objects.count(), 20)
+        self.assertEqual(carga.detalle_errores['creadas'], 20)
+        self.assertEqual(len({e['fila'] for e in carga.detalle_errores['errores']}), 13)
+        self.assertFalse(Calificacion.objects.filter(instrumento='BANCO-ANDINO', secuencia_evento=10021).exists())
+        r = self.client.get(reverse('carga_detalle', args=[carga.pk]))
+        self.assertContains(r, 'no se cargaron')
+        self.assertNotContains(r, 'Cargar solo las')                  # ya no se puede repetir
+
+    def test_modo_solo_validas_con_el_archivo_de_errores_carga_12(self):
+        self.subir_bytes((FIXTURES / 'carga_masiva_errores_nuam.csv').read_bytes(), 'errores.csv')
+        carga = CargaMasiva.objects.get()
+        self.client.post(reverse('carga_confirmar', args=[carga.pk]), {'modo': 'validas'})
+        carga.refresh_from_db()
+        self.assertEqual((carga.estado, carga.registros_ok, carga.registros_error), ('parcial', 12, 26))
+        self.assertEqual(Calificacion.objects.count(), 12)
+
+    def test_modo_solo_validas_no_se_puede_dos_veces_ni_sin_filas_validas(self):
+        self.subir(fila_csv(), fila_csv(secuencia=5, instrumento='MALA'))
+        carga = CargaMasiva.objects.get()
+        for _ in range(2):
+            self.client.post(reverse('carga_confirmar', args=[carga.pk]), {'modo': 'validas'})
+        self.assertEqual(Calificacion.objects.count(), 1)
+        self.assertEqual(RegistroAuditoria.objects.filter(accion='carga', id_calificacion__isnull=True).count(), 1)
+        self.subir(fila_csv(secuencia=5))
+        otra = CargaMasiva.objects.latest('id_carga')
+        self.client.post(reverse('carga_confirmar', args=[otra.pk]), {'modo': 'validas'})
+        otra.refresh_from_db()
+        self.assertEqual(otra.estado, 'con_errores')
+
+    def test_la_bitacora_resume_las_filas_omitidas(self):
+        self.subir(fila_csv(), fila_csv(secuencia=5, instrumento='MALA'))
+        carga = CargaMasiva.objects.get()
+        self.client.post(reverse('carga_confirmar', args=[carga.pk]), {'modo': 'validas'})
+        resumen = RegistroAuditoria.objects.get(accion='carga', id_calificacion__isnull=True)
+        self.assertEqual(resumen.detalle['filas_omitidas_por_error'], 1)
+
+    # ---- errores y todo-o-nada
+    def test_una_fila_mala_bloquea_toda_la_carga(self):
+        self.subir(fila_csv(), fila_csv(instrumento='SQM-B', secuencia=5))
+        carga = CargaMasiva.objects.get()
+        self.assertEqual(carga.estado, 'con_errores')
+        self.assertEqual(carga.registros_error, 1)
+        self.assertEqual(carga.detalle_errores[0]['fila'], 3)
+        self.assertEqual(carga.detalle_errores[0]['columna'], 'secuencia')
+        self.client.post(reverse('carga_confirmar', args=[carga.pk]))
+        self.assertFalse(Calificacion.objects.exists())
+        self.assertContains(self.client.get(reverse('carga_detalle', args=[carga.pk])), 'No se cargó ningún registro')
+
+    def test_reporta_todos_los_errores_de_una_fila(self):
+        r = cargas.validar_archivo(csv_bytes(fila_csv(ejercicio=1800, mercado='XXX', fecha='31-02-2025', tipo='OTRO')))
+        self.assertEqual({e['columna'] for e in r['errores']}, {'tipo_carga', 'ejercicio', 'mercado', 'fecha_pago'})
+
+    def test_factores_directos_nunca_se_ajustan_se_rechazan(self):
+        r = cargas.validar_archivo(csv_bytes(fila_csv('FACTORES', c8='0,5', c9='0,3', c11='0,20000001', c25=0, c30=0)))
+        self.assertEqual(r['errores'][0]['columna'], 'c8..c19')
+        self.assertIn('1.00000001', r['errores'][0]['error'])
+
+    def test_celda_vacia_decimales_de_mas_y_separador_de_miles(self):
+        r = cargas.validar_archivo(csv_bytes(
+            fila_csv(c10=''), fila_csv(secuencia=10002, c11='1.200.000'),
+            fila_csv('FACTORES', secuencia=10003, c8='0,500000001', c9='0,5', c11=0, c25=0, c30=0)))
+        self.assertEqual(errores_por_fila(r), {2: {'c10'}, 3: {'c11'}, 4: {'c8'}})
+
+    def test_columnas_de_mas_y_de_menos(self):
+        r = cargas.validar_archivo(csv_bytes(fila_csv() + ';1', ';'.join(fila_csv().split(';')[:-1])))
+        self.assertTrue(all(e['columna'] == '(fila)' for e in r['errores']))
+        self.assertEqual({e['fila'] for e in r['errores']}, {2, 3})
+
+    def test_texto_peligroso_en_instrumento_y_descripcion_se_rechaza(self):
+        for malo in ('=CMD()', '+1', '@SUM(A1)', '-2+3'):
+            r = cargas.validar_archivo(csv_bytes(fila_csv(instrumento=malo)))
+            self.assertEqual(r['errores'][0]['columna'], 'instrumento', malo)
+            r = cargas.validar_archivo(csv_bytes(fila_csv(descripcion=malo)))
+            self.assertEqual(r['errores'][0]['columna'], 'descripcion', malo)
+
+    def test_limites_de_tamano_filas_y_formato(self):
+        for malo in (b'', b'a' * (cargas.MAX_BYTES + 1), b'\x00\x01\x02'):
+            with self.assertRaises(cargas.ArchivoInvalido):
+                cargas.validar_archivo(malo)
+        filas = [fila_csv(secuencia=10001 + i) for i in range(cargas.MAX_FILAS + 1)]
+        with self.assertRaises(cargas.ArchivoInvalido):
+            cargas.validar_archivo(csv_bytes(*filas))
+
+    def test_extension_distinta_de_csv_se_rechaza(self):
+        r, _ = self.subir(fila_csv(), nombre='datos.xlsx')
+        self.assertContains(r, 'debe ser un .csv')
+        self.assertFalse(CargaMasiva.objects.exists())
+
+    # ---- upsert
+    def test_cargar_de_nuevo_actualiza_sin_duplicar(self):
+        self.cargar_y_confirmar(fila_csv())
+        carga2 = self.cargar_y_confirmar(fila_csv('FACTORES', instrumento='EMPRESA-HDU', secuencia=10001,
+                                                  c8='0,4', c9='0,3', c11='0,3', c25=0, c30=0, historico='500',
+                                                  descripcion='Corregida'))
+        self.assertEqual(Calificacion.objects.count(), 1)
+        cal = Calificacion.objects.get()
+        self.assertEqual(cal.factores.get(numero_columna=8).valor, D('0.4'))
+        self.assertEqual(cal.montos.get(numero_columna=8).valor, D('192770580'))   # fila FACTORES no pisa montos
+        self.assertEqual((cal.valor_historico, cal.descripcion), (D('500'), 'Corregida'))
+        self.assertEqual(cal.carga, carga2)
+        self.assertEqual(carga2.detalle_errores, {'creadas': 0, 'actualizadas': 1})
+        log = RegistroAuditoria.objects.filter(accion='carga', id_calificacion=cal.pk).latest('id_registro')
+        self.assertEqual(log.detalle['operacion'], 'actualizar')
+        self.assertEqual(log.detalle['cambios']['factor_8'], {'antes': '0.52277431', 'despues': '0.40000000'})
+        self.assertNotIn('monto_8', log.detalle['cambios'])
+
+    def test_una_carga_reactiva_una_calificacion_eliminada(self):
+        self.cargar_y_confirmar(fila_csv())
+        cal = Calificacion.objects.get()
+        self.client.post(reverse('eliminar', args=[cal.pk]))
+        self.cargar_y_confirmar(fila_csv())
+        cal.refresh_from_db()
+        self.assertFalse(cal.eliminado)
+        self.assertEqual(Calificacion.objects.count(), 1)
+
+    def test_la_carga_nunca_toca_la_bolsa_ni_otra_corredora(self):
+        bolsa = Corredora.objects.create(nombre='Bolsa', rut='99.999.999-9', es_bolsa=True)
+        llave = dict(ejercicio=2025, mercado='ACN', instrumento='EMPRESA-HDU', secuencia_evento=10001)
+        oficial = Calificacion.objects.create(corredora=bolsa, origen='oficial_bolsa', valor_historico=D('7'), **llave)
+        ajena = Calificacion.objects.create(corredora=self.corr_b, valor_historico=D('9'), **llave)
+        self.cargar_y_confirmar(fila_csv(historico='123'))
+        oficial.refresh_from_db(); ajena.refresh_from_db()
+        self.assertEqual((oficial.valor_historico, ajena.valor_historico), (D('7'), D('9')))
+        self.assertEqual(Calificacion.objects.filter(corredora=self.corr_a).count(), 1)
+
+    # ---- bitácora
+    def test_la_carga_queda_en_la_bitacora_con_hash_y_corredora(self):
+        self.cargar_y_confirmar(fila_csv())
+        resumen = RegistroAuditoria.objects.filter(accion='carga', id_calificacion__isnull=True).get()
+        self.assertEqual(resumen.usuario, self.op_a)
+        self.assertEqual(resumen.detalle['creadas'], 1)
+        self.assertEqual(resumen.detalle['corredora_id'], self.corr_a.pk)
+        self.assertEqual(len(resumen.detalle['sha256']), 64)
+        fila = RegistroAuditoria.objects.filter(accion='carga', id_calificacion__isnull=False).get()
+        self.assertEqual(fila.detalle['operacion'], 'crear')
+
+    # ---- seguridad
+    def test_confirmar_exige_post_y_no_se_puede_dos_veces(self):
+        self.subir(fila_csv())
+        carga = CargaMasiva.objects.get()
+        self.client.get(reverse('carga_confirmar', args=[carga.pk]))
+        self.assertFalse(Calificacion.objects.exists())
+        self.client.post(reverse('carga_confirmar', args=[carga.pk]))
+        self.client.post(reverse('carga_confirmar', args=[carga.pk]))
+        self.assertEqual(Calificacion.objects.count(), 1)
+        self.assertEqual(RegistroAuditoria.objects.filter(accion='carga', id_calificacion__isnull=True).count(), 1)
+
+    def test_archivo_alterado_en_disco_no_se_carga(self):
+        self.subir(fila_csv())
+        carga = CargaMasiva.objects.get()
+        (cargas.raiz_cargas() / carga.archivo_ruta).write_text('alterado')
+        self.client.post(reverse('carga_confirmar', args=[carga.pk]))
+        carga.refresh_from_db()
+        self.assertEqual(carga.estado, 'fallida')
+        self.assertFalse(Calificacion.objects.exists())
+
+    def test_otra_corredora_no_ve_ni_confirma_la_carga(self):
+        self.subir(fila_csv())
+        carga = CargaMasiva.objects.get()
+        self.client.force_login(self.op_b)
+        self.assertEqual(self.client.get(reverse('carga_detalle', args=[carga.pk])).status_code, 403)
+        self.assertEqual(self.client.post(reverse('carga_confirmar', args=[carga.pk])).status_code, 403)
+        carga.refresh_from_db()
+        self.assertEqual(carga.estado, 'pendiente')
+
+    def test_administrador_no_puede_cargar(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse('carga_masiva')).status_code, 403)
+        self.assertEqual(self.client.get(reverse('carga_plantilla')).status_code, 403)
+
+    def test_el_boton_carga_masiva_de_la_grilla_apunta_a_la_pagina(self):
+        self.assertContains(self.client.get(reverse('grilla')), reverse('carga_masiva'))
+
+    def test_rollback_total_si_falla_la_grabacion(self):
+        from unittest import mock
+        self.subir(fila_csv(), fila_csv(instrumento='SQM-B', secuencia=10002))
+        carga = CargaMasiva.objects.get()
+        original = cargas.registrar
+        llamadas = {'n': 0}
+
+        def falla_en_la_segunda(*a, **k):
+            llamadas['n'] += 1
+            if llamadas['n'] == 2:
+                raise RuntimeError('boom')
+            return original(*a, **k)
+        with mock.patch.object(cargas, 'registrar', falla_en_la_segunda):
+            self.client.post(reverse('carga_confirmar', args=[carga.pk]))
+        carga.refresh_from_db()
+        self.assertEqual(carga.estado, 'fallida')
+        self.assertFalse(Calificacion.objects.exists())

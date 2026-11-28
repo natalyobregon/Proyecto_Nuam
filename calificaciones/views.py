@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
+from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.shortcuts import get_object_or_404 #ESTO ES PARA ELIMINAR UNA CALIFICACION
@@ -16,7 +17,7 @@ from cuentas.permisos import (
     permiso_requerido,
     tiene_permiso,
 )
-from cuentas.servicios import CAMPOS_AUDITADOS, instantanea, registrar
+from cuentas.servicios import CAMPOS_AUDITADOS, auditar, instantanea, registrar
 from .calculos import (
     CERO,
     calcular_factores_desde_montos,
@@ -25,8 +26,9 @@ from .calculos import (
     resolver_factores_editables,
     validar_suma_factores_8_a_19,
 )
-from .forms import CalificacionBasicaForm
-from .models import Calificacion, FactorCalificacion, MontoCalificacion
+from . import cargas
+from .forms import CalificacionBasicaForm, CargaMasivaForm
+from .models import Calificacion, CargaMasiva, FactorCalificacion, MontoCalificacion
 
 
 @never_cache
@@ -325,3 +327,151 @@ def detalle_calificacion(request, pk):
         'puede_modificar': tiene_permiso(request.user, MODIFICAR),
         'puede_eliminar': tiene_permiso(request.user, ELIMINAR),
     })
+
+
+# ---------------------------------------------------------------- carga masiva
+def _carga_propia(request, pk):
+    """La carga debe ser de la corredora del usuario (aislamiento, igual que las calificaciones)."""
+    try:
+        return CargaMasiva.objects.select_related('corredora', 'usuario').get(
+            pk=pk, corredora_id=request.user.corredora_id)
+    except CargaMasiva.DoesNotExist:
+        raise PermissionDenied
+
+
+@never_cache
+@permiso_requerido(CARGA_MASIVA)
+def carga_masiva(request):
+    if not request.user.corredora_id:
+        messages.error(request, 'Su usuario no tiene una corredora asignada para cargar archivos.')
+        return redirect('grilla')
+
+    if request.method == 'POST':
+        form = CargaMasivaForm(request.POST, request.FILES)
+        if form.is_valid():
+            archivo = form.cleaned_data['archivo']
+            if archivo.size > cargas.MAX_BYTES:
+                form.add_error('archivo', f'El archivo supera el máximo de {cargas.MAX_BYTES // (1024 * 1024)} MB.')
+            else:
+                contenido = archivo.read()
+                try:
+                    resultado = cargas.validar_archivo(contenido)
+                except cargas.ArchivoInvalido as exc:
+                    form.add_error('archivo', str(exc))
+                else:
+                    huella = cargas.calcular_hash(contenido)
+                    con_errores = bool(resultado['errores'])
+                    carga = CargaMasiva.objects.create(
+                        corredora=request.user.corredora, usuario=request.user,
+                        tipo=cargas.tipo_de_carga(resultado['filas']) if resultado['filas'] else 'mixto',
+                        nombre_archivo=archivo.name[:255], hash_sha256=huella,
+                        archivo_ruta=cargas.guardar_original(contenido, huella),
+                        total_registros=resultado['total'],
+                        registros_ok=len(resultado['filas']),
+                        registros_error=resultado['filas_con_error'],
+                        estado='con_errores' if con_errores else 'pendiente',
+                        detalle_errores=resultado['errores'][:cargas.MAX_ERRORES_DETALLE] or None)
+                    return redirect('carga_detalle', pk=carga.pk)
+    else:
+        form = CargaMasivaForm()
+
+    historial = CargaMasiva.objects.filter(corredora_id=request.user.corredora_id).order_by('-fecha_carga')[:10]
+    return render(request, 'calificaciones/carga_masiva.html', {
+        'form': form, 'historial': historial,
+        'max_mb': cargas.MAX_BYTES // (1024 * 1024), 'max_filas': cargas.MAX_FILAS})
+
+
+@never_cache
+@permiso_requerido(CARGA_MASIVA)
+def carga_plantilla(request):
+    respuesta = HttpResponse(cargas.plantilla_csv(), content_type='text/csv; charset=utf-8')
+    respuesta['Content-Disposition'] = 'attachment; filename="plantilla_carga_masiva.csv"'
+    return respuesta
+
+
+@never_cache
+@permiso_requerido(CARGA_MASIVA)
+def carga_detalle(request, pk):
+    """Vista previa (carga pendiente) o resultado (carga ya procesada)."""
+    carga = _carga_propia(request, pk)
+    previa, aviso = [], None
+    if carga.estado in ('pendiente', 'con_errores'):
+        try:
+            resultado = cargas.validar_archivo(cargas.leer_original(carga))
+            previa = cargas.marcar_operaciones(resultado['filas'], carga.corredora)
+            nuevas = sum(1 for f in previa if f['operacion'] == 'crear')
+            aviso = {'crear': nuevas, 'actualizar': len(previa) - nuevas}
+        except cargas.ArchivoInvalido as exc:
+            messages.error(request, str(exc))
+    if isinstance(carga.detalle_errores, list):
+        errores = carga.detalle_errores
+    else:
+        errores = (carga.detalle_errores or {}).get('errores', [])
+    return render(request, 'calificaciones/carga_detalle.html', {
+        'carga': carga, 'previa': previa[:20], 'total_previa': len(previa), 'aviso': aviso,
+        'errores': errores, 'errores_truncados': carga.registros_error > len({e['fila'] for e in errores}),
+        'resumen': carga.detalle_errores if isinstance(carga.detalle_errores, dict) else None,
+        'puede_confirmar': carga.estado == 'pendiente',
+        'puede_cargar_validas': carga.estado == 'con_errores' and bool(previa)})
+
+
+@never_cache
+@permiso_requerido(CARGA_MASIVA)
+def carga_confirmar(request, pk):
+    """Solo POST. Vuelve a validar el archivo guardado y recién ahí graba.
+
+    modo=todo     (por defecto): solo si el archivo no tiene errores (todo o nada).
+    modo=validas: graba las filas válidas y deja las demás informadas como error.
+    """
+    carga = _carga_propia(request, pk)
+    if request.method != 'POST':
+        return redirect('carga_detalle', pk=pk)
+    solo_validas = request.POST.get('modo') == 'validas'
+    estados_permitidos = ('pendiente', 'con_errores') if solo_validas else ('pendiente',)
+    if carga.estado not in estados_permitidos:
+        messages.error(request, 'Esta carga ya fue procesada o tiene errores; no se puede confirmar.')
+        return redirect('carga_detalle', pk=pk)
+    try:
+        resultado = cargas.validar_archivo(cargas.leer_original(carga))
+    except cargas.ArchivoInvalido as exc:
+        carga.estado = 'fallida'
+        carga.detalle_errores = [{'fila': 0, 'columna': '(archivo)', 'error': str(exc)}]
+        carga.save()
+        messages.error(request, str(exc))
+        return redirect('carga_detalle', pk=pk)
+    if resultado['errores'] and not solo_validas:
+        carga.estado = 'con_errores'
+        carga.registros_error = resultado['filas_con_error']
+        carga.detalle_errores = resultado['errores'][:cargas.MAX_ERRORES_DETALLE]
+        carga.save()
+        messages.error(request, 'El archivo tiene errores. No se cargó ningún registro.')
+        return redirect('carga_detalle', pk=pk)
+    if not resultado['filas']:
+        messages.error(request, 'El archivo no tiene filas válidas para cargar.')
+        return redirect('carga_detalle', pk=pk)
+    try:
+        with transaction.atomic():
+            bloqueada = CargaMasiva.objects.select_for_update().get(pk=carga.pk)
+            if bloqueada.estado not in estados_permitidos:          # doble clic / dos pestañas
+                messages.error(request, 'Esta carga ya fue procesada.')
+                return redirect('carga_detalle', pk=pk)
+            creadas, actualizadas = cargas.aplicar_carga(
+                request, bloqueada, resultado['filas'],
+                errores=resultado['errores'], filas_con_error=resultado['filas_con_error'])
+            auditar(request, 'carga', request.user, carga_id=carga.pk, archivo=carga.nombre_archivo,
+                    sha256=carga.hash_sha256, tipo=carga.tipo, corredora_id=carga.corredora_id,
+                    creadas=creadas, actualizadas=actualizadas,
+                    filas_omitidas_por_error=resultado['filas_con_error'])
+    except Exception:
+        carga.refresh_from_db()
+        carga.estado = 'fallida'
+        carga.detalle_errores = [{'fila': 0, 'columna': '(sistema)',
+                                  'error': 'Error inesperado al grabar. No se cargó ningún registro.'}]
+        carga.save()
+        messages.error(request, 'Error inesperado al grabar. No se cargó ningún registro.')
+        return redirect('carga_detalle', pk=pk)
+    mensaje = f'Carga completada: {creadas} creadas y {actualizadas} actualizadas.'
+    if resultado['filas_con_error']:
+        mensaje += f' Se omitieron {resultado["filas_con_error"]} filas con error (ver detalle).'
+    messages.success(request, mensaje)
+    return redirect('carga_detalle', pk=pk)

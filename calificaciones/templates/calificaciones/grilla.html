@@ -10,9 +10,7 @@
         <a href="{% url 'ingresar' %}" class="btn btn-primary">Ingresar</a>
         {% endif %}
     {% if puede_carga_masiva %}
-      <button type="button" class="btn btn-outline-primary" disabled title="Disponible en el siguiente paso">
-        Carga masiva
-      </button>
+      <a href="{% url 'carga_masiva' %}" class="btn btn-outline-primary">Carga masiva</a>
     {% endif %}
     {% if puede_admin_usuarios %}
       <a href="/admin/" class="btn btn-outline-secondary">Administración</a>

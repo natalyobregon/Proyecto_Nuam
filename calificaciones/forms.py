@@ -79,3 +79,15 @@ class CalificacionBasicaForm(forms.ModelForm):
         if secuencia <= 10000:
             raise forms.ValidationError('La secuencia del evento debe ser mayor a 10.000.')
         return secuencia
+
+
+
+class CargaMasivaForm(forms.Form):
+    archivo = forms.FileField(
+        widget=forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.csv,text/csv'}))
+
+    def clean_archivo(self):
+        archivo = self.cleaned_data['archivo']
+        if not archivo.name.lower().endswith('.csv'):
+            raise forms.ValidationError('El archivo debe ser un .csv.')
+        return archivo

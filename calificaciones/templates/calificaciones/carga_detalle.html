@@ -1,0 +1,104 @@
+{% extends 'base.html' %}
+{% block titulo %}Carga masiva - {{ carga.nombre_archivo }}{% endblock %}
+
+{% block contenido %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 fw-bold mb-0">Carga masiva: vista previa y resultado</h1>
+  <a href="{% url 'carga_masiva' %}" class="btn btn-outline-secondary btn-sm">Volver a cargas</a>
+</div>
+
+{% if messages %}
+  {% for msg in messages %}
+    <div class="alert alert-{% if msg.tags == 'error' %}danger{% else %}{{ msg.tags }}{% endif %}" role="alert">{{ msg }}</div>
+  {% endfor %}
+{% endif %}
+
+<div class="card card-body shadow-sm mb-3">
+  <div class="row g-2 small">
+    <div class="col-12 col-md-4"><strong>Archivo:</strong> {{ carga.nombre_archivo }}</div>
+    <div class="col-6 col-md-2"><strong>Tipo:</strong> {{ carga.get_tipo_display }}</div>
+    <div class="col-6 col-md-3"><strong>Estado:</strong> {{ carga.get_estado_display }}</div>
+    <div class="col-12 col-md-3"><strong>Fecha:</strong> {{ carga.fecha_carga|date:"d/m/Y H:i" }}</div>
+    <div class="col-6 col-md-2"><strong>Filas:</strong> {{ carga.total_registros }}</div>
+    <div class="col-6 col-md-2"><strong>Válidas:</strong> {{ carga.registros_ok }}</div>
+    <div class="col-6 col-md-2"><strong>Con error:</strong> {{ carga.registros_error }}</div>
+    <div class="col-12 col-md-6"><strong>SHA-256:</strong> <span class="font-monospace text-break">{{ carga.hash_sha256 }}</span></div>
+    {% if resumen %}
+      <div class="col-12"><strong>Resultado:</strong> {{ resumen.creadas }} creadas, {{ resumen.actualizadas }} actualizadas.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if errores %}
+  {% if carga.estado == 'parcial' %}
+    <div class="alert alert-warning" role="alert">
+      Se cargaron las filas válidas. Las filas siguientes <strong>no se cargaron</strong>: corríjalas y vuelva a subirlas.
+    </div>
+  {% else %}
+    <div class="alert alert-danger" role="alert">
+      El archivo tiene errores. <strong>No se cargó ningún registro</strong>: corrija el archivo y vuelva a subirlo,
+      o cargue solo las filas válidas.
+    </div>
+  {% endif %}
+  <div class="table-responsive shadow-sm mb-3">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <thead><tr><th scope="col">Fila</th><th scope="col">Columna</th><th scope="col">Error</th></tr></thead>
+      <tbody>
+        {% for e in errores %}
+          <tr><td>{{ e.fila }}</td><td>{{ e.columna }}</td><td>{{ e.error }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if errores|length >= 200 %}<p class="small text-muted">Se muestran los primeros 200 errores.</p>{% endif %}
+{% endif %}
+
+{% if previa %}
+  <h2 class="h6 fw-bold mb-2">Vista previa ({{ total_previa }} filas
+    {% if aviso %}: {{ aviso.crear }} nuevas y {{ aviso.actualizar }} que actualizan una existente{% endif %})</h2>
+  <div class="table-responsive shadow-sm mb-3">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <thead>
+        <tr>
+          <th scope="col">Fila</th><th scope="col">Tipo</th><th scope="col">Operación</th><th scope="col">Ejercicio</th>
+          <th scope="col">Mercado</th><th scope="col">Instrumento</th><th scope="col">Fecha pago</th>
+          <th scope="col">Secuencia</th><th scope="col">Descripción</th>
+          <th scope="col" class="text-end">F8</th><th scope="col" class="text-end">F9</th><th scope="col" class="text-end">F10</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in previa %}
+          <tr>
+            <td>{{ f.fila }}</td>
+            <td>{{ f.tipo_carga }}</td>
+            <td>{{ f.operacion }}</td>
+            <td>{{ f.ejercicio }}</td><td>{{ f.mercado }}</td><td class="fw-semibold">{{ f.instrumento }}</td>
+            <td>{{ f.fecha_pago|date:"d/m/Y" }}</td><td>{{ f.secuencia_evento }}</td><td>{{ f.descripcion|default:"—" }}</td>
+            <td class="text-end font-monospace">{{ f.factores.8|stringformat:"s" }}</td>
+            <td class="text-end font-monospace">{{ f.factores.9|stringformat:"s" }}</td>
+            <td class="text-end font-monospace">{{ f.factores.10|stringformat:"s" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if total_previa > 20 %}<p class="small text-muted">Se muestran las primeras 20 filas.</p>{% endif %}
+{% endif %}
+
+{% if puede_cargar_validas %}
+  <form method="post" action="{% url 'carga_confirmar' carga.pk %}" class="d-flex gap-2 mb-3">
+    {% csrf_token %}
+    <input type="hidden" name="modo" value="validas">
+    <button type="submit" class="btn btn-warning">Cargar solo las {{ total_previa }} filas válidas (se omiten {{ carga.registros_error }} con error)</button>
+    <a href="{% url 'carga_masiva' %}" class="btn btn-outline-secondary">Cancelar</a>
+  </form>
+{% endif %}
+
+{% if puede_confirmar %}
+  <form method="post" action="{% url 'carga_confirmar' carga.pk %}" class="d-flex gap-2">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">Confirmar carga</button>
+    <a href="{% url 'carga_masiva' %}" class="btn btn-outline-secondary">Cancelar</a>
+  </form>
+{% endif %}
+{% endblock %}
